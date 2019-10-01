@@ -34,6 +34,7 @@
 #include <llvm/Support/Host.h>
 
 #include <vector>
+#include <fstream>
 #include <iostream>
 
 #include "mocastconsumer.h"
@@ -293,7 +294,7 @@ static void showHelp() {
 //               "  -f[<file>]         force #include, optional file name\n"
 //               "  -nn                do not display notes\n"
 //               "  -nw                do not display warnings\n"
-//               "  @<file>            read additional options from file\n"
+              "  @<file>            read additional options from file\n"
               "  -v                 display version of moc-ng\n"
               "  -include <file>    Adds an implicit #include into the predefines buffer which is read before the source file is preprocessed\n"
 
@@ -311,6 +312,124 @@ static void showHelp() {
     showVersion(false);
 }
 
+void parseArgs(int argc, const char** argv, std::vector<std::string>& Argv, bool& PreprocessorOnly, bool& HasInput, llvm::StringRef& InputFile)
+{
+  bool NextArgNotInput = false;
+  for (int I = 1 ; I < argc; ++I) {
+    if (argv[I][0] == '-') {
+      NextArgNotInput = false;
+      switch (argv[I][1]) {
+        case 'h':
+        case '?':
+          showHelp();
+          exit(EXIT_SUCCESS);
+        case 'v':
+          showVersion(true);
+          exit(EXIT_SUCCESS);
+        case 'o':
+          if (argv[I][2]) Options.addOutput(&argv[I][2]);
+          else if ((++I) < argc) Options.addOutput(argv[I]);
+          continue;
+        case 'i':
+          if (argv[I] == llvm::StringRef("-i")) {
+            Options.NoInclude = true;
+            continue;
+          } else if (argv[I] == llvm::StringRef("-include")) {
+            NextArgNotInput = true;
+            break;
+          }
+          goto invalidArg;
+        case 'M': {
+                    llvm::StringRef Arg;
+                    if (argv[I][2]) Arg = &argv[I][2];
+                    else if ((++I) < argc) Arg = argv[I];
+                    size_t Eq = Arg.find('=');
+                    if (Eq == llvm::StringRef::npos) {
+                      std::cerr << "moc-ng: missing key or value for option '-M'" << std::endl;
+                      exit(EXIT_FAILURE);
+                    }
+                    Options.MetaData.push_back({Arg.substr(0, Eq), Arg.substr(Eq+1)});
+                    continue;
+                  }
+        case 'E':
+                  PreprocessorOnly = true;
+                  break;
+        case 'I':
+        case 'U':
+        case 'D':
+                  NextArgNotInput = (argv[I][2] == '\0');
+                  break;
+        case 'X':
+                  NextArgNotInput = true;
+                  break;
+        case 'f': //this is understood as compiler option rather than moc -f
+        case 'W': // same
+                  break;
+        case 'n': //not implemented, silently ignored
+                  continue;
+        case '-':
+                  if (llvm::StringRef(argv[I]) == "--include" ||
+                      llvm::StringRef(argv[I]).startswith("--include=")) {
+                    llvm::StringRef File;
+                    if (llvm::StringRef(argv[I]).startswith("--include=")) {
+                      File = llvm::StringRef(argv[I]).substr(llvm::StringRef("--include=").size());
+                    } else if (I + 1 < argc) {
+                      File = llvm::StringRef(argv[++I]);
+                    }
+                    if (File.endswith("/moc_predefs.h")) {
+                      // qmake generates moc_predefs with compiler defined stuff.
+                      // We can't support it because everything is already pre-defined.
+                      // So skip it.
+                      continue;
+                    }
+                    Argv.push_back("-include");
+                    Argv.push_back(File);
+                    continue;
+                  }
+                  if (llvm::StringRef(argv[I]).startswith("--compiler-flavor")) {
+                    if (llvm::StringRef(argv[I]) == "--compiler-flavor")
+                      ++I;
+                    // MSVC flavor not yet implemented
+                    continue;
+                  }
+                  LLVM_FALLTHROUGH;
+        default:
+invalidArg:
+                  std::cerr << "moc-ng: Invalid argument '" << argv[I] << "'" << std::endl;
+                  showHelp();
+                  exit(EXIT_FAILURE);
+      }
+    } else if (argv[I][0] == '@') {
+      std::ifstream optionsFile(argv[I] + 1, std::ios::in);
+      if (!optionsFile) {
+        std::cerr << "moc-ng: Could not open options file '" << (argv[I] + 1) << "'" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      std::vector<std::string> options;
+      std::string line;
+      while (std::getline(optionsFile, line)) {
+        options.push_back(line);
+      }
+
+      const char* argvFromFile[options.size() + 1];
+      for (size_t i{0}; i < options.size(); ++i)
+      {
+        argvFromFile[i + 1] = options[i].c_str();
+      }
+
+      parseArgs(options.size() + 1, argvFromFile, Argv, PreprocessorOnly, HasInput, InputFile);
+      continue;
+    } else if (!NextArgNotInput) {
+      if (HasInput) {
+        std::cerr << "error: Too many input files specified" << std::endl;
+        exit(EXIT_FAILURE);
+      }
+      HasInput = true;
+      InputFile = argv[I];
+    }
+    Argv.push_back(argv[I]);
+  }
+}
 
 int main(int argc, const char **argv)
 {
@@ -329,104 +448,10 @@ int main(int argc, const char **argv)
   Argv.push_back("-std=c++14");
 #endif
 
-  bool NextArgNotInput = false;
   bool HasInput = false;
   llvm::StringRef InputFile;
 
-  for (int I = 1 ; I < argc; ++I) {
-    if (argv[I][0] == '-') {
-        NextArgNotInput = false;
-        switch (argv[I][1]) {
-            case 'h':
-            case '?':
-                showHelp();
-                return EXIT_SUCCESS;
-            case 'v':
-                showVersion(true);
-                return EXIT_SUCCESS;
-            case 'o':
-                if (argv[I][2]) Options.addOutput(&argv[I][2]);
-                else if ((++I) < argc) Options.addOutput(argv[I]);
-                continue;
-            case 'i':
-                if (argv[I] == llvm::StringRef("-i")) {
-                    Options.NoInclude = true;
-                    continue;
-                } else if (argv[I] == llvm::StringRef("-include")) {
-                    NextArgNotInput = true;
-                    break;
-                }
-                goto invalidArg;
-            case 'M': {
-                llvm::StringRef Arg;
-                if (argv[I][2]) Arg = &argv[I][2];
-                else if ((++I) < argc) Arg = argv[I];
-                size_t Eq = Arg.find('=');
-                if (Eq == llvm::StringRef::npos) {
-                    std::cerr << "moc-ng: missing key or value for option '-M'" << std::endl;
-                    return EXIT_FAILURE;
-                }
-                Options.MetaData.push_back({Arg.substr(0, Eq), Arg.substr(Eq+1)});
-                continue;
-            }
-            case 'E':
-                PreprocessorOnly = true;
-                break;
-            case 'I':
-            case 'U':
-            case 'D':
-                NextArgNotInput = (argv[I][2] == '\0');
-                break;
-            case 'X':
-                NextArgNotInput = true;
-                break;
-            case 'f': //this is understood as compiler option rather than moc -f
-            case 'W': // same
-                break;
-            case 'n': //not implemented, silently ignored
-                continue;
-            case '-':
-                if (llvm::StringRef(argv[I]) == "--include" ||
-                        llvm::StringRef(argv[I]).startswith("--include=")) {
-                    llvm::StringRef File;
-                    if (llvm::StringRef(argv[I]).startswith("--include=")) {
-                        File = llvm::StringRef(argv[I]).substr(llvm::StringRef("--include=").size());
-                    } else if (I + 1 < argc) {
-                        File = llvm::StringRef(argv[++I]);
-                    }
-                    if (File.endswith("/moc_predefs.h")) {
-                        // qmake generates moc_predefs with compiler defined stuff.
-                        // We can't support it because everything is already pre-defined.
-                        // So skip it.
-                        continue;
-                    }
-                    Argv.push_back("-include");
-                    Argv.push_back(File);
-                    continue;
-                }
-                if (llvm::StringRef(argv[I]).startswith("--compiler-flavor")) {
-                    if (llvm::StringRef(argv[I]) == "--compiler-flavor")
-                        ++I;
-                    // MSVC flavor not yet implemented
-                    continue;
-                }
-                LLVM_FALLTHROUGH;
-            default:
-invalidArg:
-                std::cerr << "moc-ng: Invalid argument '" << argv[I] << "'" << std::endl;
-                showHelp();
-                return EXIT_FAILURE;
-        }
-    } else if (!NextArgNotInput) {
-        if (HasInput) {
-            std::cerr << "error: Too many input files specified" << std::endl;
-            return EXIT_FAILURE;
-        }
-        HasInput = true;
-        InputFile = argv[I];
-    }
-    Argv.push_back(argv[I]);
-  }
+  parseArgs(argc, argv, Argv, PreprocessorOnly, HasInput, InputFile);
 
   if (Options.Output.empty())
     Options.Output = "-";
