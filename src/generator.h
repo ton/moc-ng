@@ -23,28 +23,27 @@
 #include <vector>
 
 namespace clang {
-class ASTContext;
-class CXXMethodDecl;
-class SourceManager;
-class QualType;
-}
+    class ASTContext;
+    class CXXMethodDecl;
+    class SourceManager;
+    class QualType;
+} // namespace clang
 
 #include <clang/AST/PrettyPrinter.h>
+
 #include "mocng.h"
 
 struct ClassDef;
 
-
-
 // From qmetaobject_p.h
-enum PropertyFlags  {
+enum PropertyFlags {
     Invalid = 0x00000000,
     Readable = 0x00000001,
     Writable = 0x00000002,
     Resettable = 0x00000004,
     EnumOrFlag = 0x00000008,
     StdCppSet = 0x00000100,
-//     Override = 0x00000200,
+    //     Override = 0x00000200,
     Constant = 0x00000400,
     Final = 0x00000800,
     Designable = 0x00001000,
@@ -60,11 +59,11 @@ enum PropertyFlags  {
     Notify = 0x00400000,
     Revisioned = 0x00800000
 };
-enum MethodFlags  {
+enum MethodFlags {
     AccessPrivate = 0x00,
     AccessProtected = 0x01,
     AccessPublic = 0x02,
-    AccessMask = 0x03, //mask
+    AccessMask = 0x03, // mask
     MethodMethod = 0x00,
     MethodSignal = 0x04,
     MethodSlot = 0x08,
@@ -80,23 +79,20 @@ enum MetaObjectFlags {
     RequiresVariantMetaObject = 0x02,
     PropertyAccessInStaticMetaCall = 0x04
 };
-enum MetaDataFlags {
-    IsUnresolvedType = 0x80000000,
-    TypeNameIndexMask = 0x7FFFFFFF
-};
+enum MetaDataFlags { IsUnresolvedType = 0x80000000, TypeNameIndexMask = 0x7FFFFFFF };
 
-
-enum { OutputRevision = 7,
-       MetaObjectPrivateFieldCount = 14, //  = sizeof(QMetaObjectPrivate) / sizeof(int)
-       mocOutputRevision = 67,
-       QT_VERSION = 0x050100
+enum {
+    OutputRevision = 7,
+    MetaObjectPrivateFieldCount = 14, //  = sizeof(QMetaObjectPrivate) / sizeof(int)
+    mocOutputRevision = 67,
+    QT_VERSION = 0x050100
 };
 
 #define MOCNG_VERSION_STR "alpha 1"
 
 class Generator {
-    const BaseDef *Def;
-    const ClassDef *CDef;
+    const BaseDef* Def;
+    const ClassDef* CDef;
     llvm::raw_ostream& OS;
     llvm::raw_ostream& OS_TemplateHeader;
 
@@ -104,21 +100,23 @@ class Generator {
 
     std::string QualName;
     std::string BaseName;
-    std::string TemplatePrefix; // what is in front of the template declaration ("template<typename t>")
+    std::string TemplatePrefix; // what is in front of the template declaration
+                                // ("template<typename t>")
     bool BaseHasStaticMetaObject = false;
     bool HasTemplateHeader;
     int MethodCount;
 
-    clang::ASTContext &Ctx;
+    clang::ASTContext& Ctx;
     clang::PrintingPolicy PrintPolicy;
 
-    MocNg *Moc;
+    MocNg* Moc;
 
-public:
-    explicit Generator(const ClassDef *CDef, llvm::raw_ostream& OS, clang::ASTContext & Ctx, MocNg *Moc,
-              llvm::raw_ostream *OS_TemplateHeader = nullptr);
+  public:
+    explicit Generator(const ClassDef* CDef, llvm::raw_ostream& OS, clang::ASTContext& Ctx,
+                       MocNg* Moc, llvm::raw_ostream* OS_TemplateHeader = nullptr);
     // For namespaces
-    explicit Generator(const NamespaceDef *NDef, llvm::raw_ostream& OS, clang::ASTContext & Ctx, MocNg *Moc);
+    explicit Generator(const NamespaceDef* NDef, llvm::raw_ostream& OS, clang::ASTContext& Ctx,
+                       MocNg* Moc);
 
     bool IsQtNamespace = false;
 
@@ -126,18 +124,19 @@ public:
     std::vector<std::pair<llvm::StringRef, llvm::StringRef>> MetaData;
 
     void GenerateCode();
-private:
 
+  private:
     int StrIdx(llvm::StringRef);
     template <typename T>
-    void GenerateFunctions(const std::vector<T> &V, const char *TypeName, MethodFlags Type, int &ParamIndex);
+    void GenerateFunctions(const std::vector<T>& V, const char* TypeName, MethodFlags Type,
+                           int& ParamIndex);
     template <typename T>
-    void GenerateFunctionParameters(const std::vector<T*> &V, const char *TypeName);
+    void GenerateFunctionParameters(const std::vector<T*>& V, const char* TypeName);
 
     void GenerateProperties();
     void GenerateMetaCall();
     void GenerateStaticMetaCall();
-    void GenerateSignal(const clang::CXXMethodDecl *MD, int Idx);
+    void GenerateSignal(const clang::CXXMethodDecl* MD, int Idx);
 
     void GenerateTypeInfo(clang::QualType Type);
     void GenerateEnums(int EnumIndex);
@@ -146,5 +145,6 @@ private:
     // Called when emiting the code to generate the invokation of a method.
     // Return true if the code was already emitted  (include the break;)
     // defined in workaroundtest.cpp
-    static bool WorkaroundTests(llvm::StringRef ClassName, const clang::CXXMethodDecl* MD, llvm::raw_ostream &OS);
+    static bool WorkaroundTests(llvm::StringRef ClassName, const clang::CXXMethodDecl* MD,
+                                llvm::raw_ostream& OS);
 };

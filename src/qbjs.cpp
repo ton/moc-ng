@@ -18,48 +18,57 @@
  */
 
 #include "qbjs.h"
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/YAMLParser.h>
-#include <llvm/Support/Casting.h>
-#include <llvm/ADT/SmallVector.h>
+
 #include <llvm/ADT/SmallString.h>
+#include <llvm/ADT/SmallVector.h>
 #include <llvm/ADT/Twine.h>
+#include <llvm/Support/Casting.h>
+#include <llvm/Support/YAMLParser.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include <iostream>
 
-static int StringSize(const std::string &Str) {
-    //FIXME: Unicode
+static int StringSize(const std::string& Str)
+{
+    // FIXME: Unicode
     return (2 + Str.size() + 3) & ~3;
 }
 
 int QBJS::Value::ComputeSize() const
 {
     int D = 0;
-    switch(T) {
-        case Undefined: return 0;
-        case Null: return 0;
-        case Bool: return 0;
-        case String: return StringSize(Str);
-        case Double: return 8; // FIXME: int optimisation
-        case Array:
-            for (const auto &E : Elems) D += E.Size() + 4;
-            return 12 + D;
-        case Object:
-            for (const auto &E : Props) {
-                D += StringSize(E.first);
-                D += E.second.Size() + 8;
-            }
-            return 12 + D;
-        default:
-            return -1;
+    switch (T) {
+    case Undefined:
+        return 0;
+    case Null:
+        return 0;
+    case Bool:
+        return 0;
+    case String:
+        return StringSize(Str);
+    case Double:
+        return 8; // FIXME: int optimisation
+    case Array:
+        for (const auto& E : Elems)
+            D += E.Size() + 4;
+        return 12 + D;
+    case Object:
+        for (const auto& E : Props) {
+            D += StringSize(E.first);
+            D += E.second.Size() + 8;
+        }
+        return 12 + D;
+    default:
+        return -1;
     }
 }
 
-static uint32_t ComputeHeader(const QBJS::Value &V, int Off) {
+static uint32_t ComputeHeader(const QBJS::Value& V, int Off)
+{
     using namespace QBJS;
     uint32_t H = V.T & 0x7;
     if (V.T == String)
-        H |= 1<<3; // FIXME: Unicode
+        H |= 1 << 3; // FIXME: Unicode
     if (V.T == Bool) {
         if (V.D > 0)
             H |= 1 << 5;
@@ -69,8 +78,7 @@ static uint32_t ComputeHeader(const QBJS::Value &V, int Off) {
     return H;
 }
 
-
-QBJS::Stream& QBJS::Stream::operator<<(const QBJS::Value &V)
+QBJS::Stream& QBJS::Stream::operator<<(const QBJS::Value& V)
 {
     if (V.T == Undefined)
         return *this;
@@ -86,7 +94,7 @@ QBJS::Stream& QBJS::Stream::operator<<(const QBJS::Value &V)
             Table.push_back(Off);
             Off += 4 + StringSize(E.first);
             uint32_t H = ComputeHeader(E.second, Off);
-            H |= 1<<4;
+            H |= 1 << 4;
             (*this) << H << E.first << E.second;
             Off += E.second.Size();
         }
@@ -119,27 +127,27 @@ QBJS::Stream& QBJS::Stream::operator<<(const QBJS::Value &V)
     return *this;
 }
 
-QBJS::Stream& QBJS::Stream::operator<<(const std::string &Str)
+QBJS::Stream& QBJS::Stream::operator<<(const std::string& Str)
 {
     (*this) << uint16_t(Str.size());
-    for (unsigned char S : Str) (*this) << S;
-    for (int I = Str.size() + 2; (I % 4)!=0 ;++I)
-        (*this) << (unsigned char)('\0'); //Padding;
+    for (unsigned char S : Str)
+        (*this) << S;
+    for (int I = Str.size() + 2; (I % 4) != 0; ++I)
+        (*this) << (unsigned char)('\0'); // Padding;
     return *this;
 }
 
 QBJS::Stream& QBJS::Stream::operator<<(uint32_t I)
 {
-    (*this) << uint16_t(I) << uint16_t(I>>16);
+    (*this) << uint16_t(I) << uint16_t(I >> 16);
     return *this;
 }
 
 QBJS::Stream& QBJS::Stream::operator<<(uint16_t I)
 {
     typedef unsigned char uchar;
-    (*this) << uchar(I) << uchar(I>>8);
+    (*this) << uchar(I) << uchar(I >> 8);
     return *this;
-
 }
 
 QBJS::Stream& QBJS::Stream::operator<<(unsigned char C)
@@ -156,35 +164,36 @@ QBJS::Stream& QBJS::Stream::operator<<(unsigned char C)
     return *this;
 }
 
-
 bool QBJS::Parse(llvm::yaml::Node* Node, QBJS::Value& Root)
 {
-    if (!Node) return false;
-    if (llvm::yaml::SequenceNode *Array = llvm::dyn_cast<llvm::yaml::SequenceNode>(Node)) {
+    if (!Node)
+        return false;
+    if (llvm::yaml::SequenceNode* Array = llvm::dyn_cast<llvm::yaml::SequenceNode>(Node)) {
         Root.T = QBJS::Array;
-        for (llvm::yaml::SequenceNode::iterator AI = Array->begin(), AE = Array->end();
-             AI != AE; ++AI) {
+        for (llvm::yaml::SequenceNode::iterator AI = Array->begin(), AE = Array->end(); AI != AE;
+             ++AI) {
             Root.Elems.emplace_back();
             if (!Parse(AI, Root.Elems.back()))
                 return false;
         }
         return true;
-    } else if (llvm::yaml::MappingNode *Object = llvm::dyn_cast<llvm::yaml::MappingNode>(Node)) {
+    } else if (llvm::yaml::MappingNode* Object = llvm::dyn_cast<llvm::yaml::MappingNode>(Node)) {
         Root.T = QBJS::Object;
         for (llvm::yaml::MappingNode::iterator KVI = Object->begin(), KVE = Object->end();
              KVI != KVE; ++KVI) {
-
-            llvm::yaml::ScalarNode *KeyString = llvm::dyn_cast<llvm::yaml::ScalarNode>((*KVI).getKey());
+            llvm::yaml::ScalarNode* KeyString =
+                llvm::dyn_cast<llvm::yaml::ScalarNode>((*KVI).getKey());
             if (!KeyString)
                 return false;
-            llvm::yaml::Node *Value = (*KVI).getValue();
-            if (!Value) return false;
+            llvm::yaml::Node* Value = (*KVI).getValue();
+            if (!Value)
+                return false;
             llvm::SmallString<20> Storage;
             if (!Parse(Value, Root.Props[KeyString->getValue(Storage)]))
                 return false;
         }
         return true;
-    } else if (llvm::yaml::ScalarNode *Scal = llvm::dyn_cast<llvm::yaml::ScalarNode>(Node)) {
+    } else if (llvm::yaml::ScalarNode* Scal = llvm::dyn_cast<llvm::yaml::ScalarNode>(Node)) {
         llvm::SmallString<20> Storage;
         Root = std::string(Scal->getValue(Storage));
         // FIXME: integer
@@ -196,7 +205,3 @@ bool QBJS::Parse(llvm::yaml::Node* Node, QBJS::Value& Root)
         return false;
     }
 }
-
-
-
-

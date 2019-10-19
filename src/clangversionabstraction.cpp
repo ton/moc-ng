@@ -18,13 +18,14 @@
  */
 
 #include "clangversionabstraction.h"
-#include <clang/Lex/Preprocessor.h>
 
+#include <clang/Lex/Preprocessor.h>
 
 namespace clang {
 }
 
-clang::FileID CreateFileIDForMemBuffer(clang::Preprocessor &PP, llvm::MemoryBuffer *Buf, clang::SourceLocation Loc)
+clang::FileID CreateFileIDForMemBuffer(clang::Preprocessor& PP, llvm::MemoryBuffer* Buf,
+                                       clang::SourceLocation Loc)
 {
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 4
     return PP.getSourceManager().createFileID(maybe_unique(Buf), clang::SrcMgr::C_User, 0, 0, Loc);

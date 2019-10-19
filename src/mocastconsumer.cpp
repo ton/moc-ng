@@ -17,21 +17,23 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "mocppcallbacks.h"
 #include "mocastconsumer.h"
-#include "clangversionabstraction.h"
+
 #include <clang/AST/ASTContext.h>
 #include <clang/AST/DeclCXX.h>
 #include <clang/AST/DeclTemplate.h>
-#include <clang/Sema/Sema.h>
 #include <clang/Basic/MacroBuilder.h>
+#include <clang/Sema/Sema.h>
 
+#include "clangversionabstraction.h"
+#include "mocppcallbacks.h"
 
-void MocASTConsumer::Initialize(clang::ASTContext& Ctx) {
+void MocASTConsumer::Initialize(clang::ASTContext& Ctx)
+{
     ctx = &Ctx;
     PPCallbacks = new MocPPCallbacks(ci.getPreprocessor(), Moc.Tags);
     ci.getPreprocessor().addPPCallbacks(maybe_unique(PPCallbacks));
-//   ci.getDiagnostics().setClient(new DiagnosticClient(), true);
+    //   ci.getDiagnostics().setClient(new DiagnosticClient(), true);
 
     // We will enable this when we require Qt >= 5.6.1 and libclang >= 3.8
     // Then we will be able to get rid of qobjectdefs-injected
@@ -51,26 +53,27 @@ void MocASTConsumer::Initialize(clang::ASTContext& Ctx) {
 #endif
 }
 
-
 void MocASTConsumer::HandleTagDeclDefinition(clang::TagDecl* D)
 {
-    clang::CXXRecordDecl *RD = llvm::dyn_cast<clang::CXXRecordDecl>(D);
+    clang::CXXRecordDecl* RD = llvm::dyn_cast<clang::CXXRecordDecl>(D);
     if (!RD)
         return;
 
     if (!shouldParseDecl(D))
         return;
 
-    clang::ClassTemplateSpecializationDecl* TD = llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(RD);
-    if (TD && TD->getIdentifier() && TD->getName() == "QMetaTypeId" && TD->getTemplateArgs().size() == 1) {
-        Moc.registered_meta_type.insert(TD->getTemplateArgs().get(0).getAsType()->getCanonicalTypeUnqualified().getTypePtr());
+    clang::ClassTemplateSpecializationDecl* TD =
+        llvm::dyn_cast<clang::ClassTemplateSpecializationDecl>(RD);
+    if (TD && TD->getIdentifier() && TD->getName() == "QMetaTypeId" &&
+        TD->getTemplateArgs().size() == 1) {
+        Moc.registered_meta_type.insert(
+            TD->getTemplateArgs().get(0).getAsType()->getCanonicalTypeUnqualified().getTypePtr());
     }
 
     if (TD) {
         // Do not parse class for class template specialization
         return;
     }
-
 
     /*if (!(PPCallbacks->seenQ_OBJECT.isValid() &&
             ctx->getSourceManager().isBeforeInTranslationUnit(D->getSourceRange().getBegin(),
@@ -91,8 +94,8 @@ void MocASTConsumer::HandleTagDeclDefinition(clang::TagDecl* D)
 
 bool MocASTConsumer::HandleTopLevelDecl(clang::DeclGroupRef D)
 {
-    for (clang::Decl *Decl : D) {
-        if (clang::NamespaceDecl *NS = llvm::dyn_cast<clang::NamespaceDecl>(Decl)) {
+    for (clang::Decl* Decl : D) {
+        if (clang::NamespaceDecl* NS = llvm::dyn_cast<clang::NamespaceDecl>(Decl)) {
             if (!shouldParseDecl(Decl))
                 continue;
             HandleNamespaceDefinition(NS);
@@ -101,8 +104,8 @@ bool MocASTConsumer::HandleTopLevelDecl(clang::DeclGroupRef D)
     return clang::ASTConsumer::HandleTopLevelDecl(D);
 }
 
-template<typename T>
-static void operator+=(std::vector<T> &v1, const std::vector<T> &v2)
+template <typename T>
+static void operator+=(std::vector<T>& v1, const std::vector<T>& v2)
 {
     v1.insert(v1.end(), v2.begin(), v2.end());
 }
@@ -113,8 +116,9 @@ void MocASTConsumer::HandleNamespaceDefinition(clang::NamespaceDecl* D)
     NamespaceDef Def = Moc.parseNamespace(D, ci.getSema());
     if (Def.hasQNamespace) {
         auto Canonical = D->getCanonicalDecl();
-        auto it = std::find_if(namespaces.begin(), namespaces.end(), [&](const NamespaceDef &d)
-            { return d.Namespace && d.Namespace->getCanonicalDecl() == Canonical; });
+        auto it = std::find_if(namespaces.begin(), namespaces.end(), [&](const NamespaceDef& d) {
+            return d.Namespace && d.Namespace->getCanonicalDecl() == Canonical;
+        });
         if (it == namespaces.end()) {
             namespaces.push_back(std::move(Def));
         } else {
@@ -126,8 +130,7 @@ void MocASTConsumer::HandleNamespaceDefinition(clang::NamespaceDecl* D)
         ci.getPreprocessor().enableIncrementalProcessing();
     }
     for (auto it = D->decls_begin(); it != D->decls_end(); ++it) {
-        if (clang::NamespaceDecl *NS = llvm::dyn_cast<clang::NamespaceDecl>(*it))
+        if (clang::NamespaceDecl* NS = llvm::dyn_cast<clang::NamespaceDecl>(*it))
             HandleNamespaceDefinition(NS);
     }
 }
-

@@ -17,16 +17,18 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "generator.h"
 #include <clang/AST/DeclCXX.h>
 #include <llvm/ADT/StringSwitch.h>
 
+#include "generator.h"
+
 /*
- * Some tests do not pass because moc is different from moc-ng and there is no reason for them
- * to change  (for example the tests expect different warnings message)
- * This cheat by detecting these tests and generating code to SKIP them
+ * Some tests do not pass because moc is different from moc-ng and there is no
+ * reason for them to change  (for example the tests expect different warnings
+ * message) This cheat by detecting these tests and generating code to SKIP them
  *
- * Keep a comment for each blacklisted test case with the reason why it is blacklisted
+ * Keep a comment for each blacklisted test case with the reason why it is
+ * blacklisted
  */
 
 bool Generator::WorkaroundTests(llvm::StringRef ClassName, const clang::CXXMethodDecl* MD,
@@ -36,34 +38,41 @@ bool Generator::WorkaroundTests(llvm::StringRef ClassName, const clang::CXXMetho
     bool Match = false;
     if (ClassName == "tst_Moc") {
         Match = llvm::StringSwitch<bool>(MethodName)
-            // The wording of the warnings is not the same with moc-ng (it is better)
-            .Cases("warnings", "warnOnExtraSignalSlotQualifiaction", "warnOnMultipleInheritance", true)
-            .Cases("forgottenQInterface", "warnOnPropertyWithoutREAD", true)
-            .Cases("warnOnVirtualSignal", "notifyError", "optionsFileError", true)
+                    // The wording of the warnings is not the same with moc-ng (it
+                    // is better)
+                    .Cases("warnings", "warnOnExtraSignalSlotQualifiaction",
+                           "warnOnMultipleInheritance", true)
+                    .Cases("forgottenQInterface", "warnOnPropertyWithoutREAD", true)
+                    .Cases("warnOnVirtualSignal", "notifyError", "optionsFileError", true)
 
-            // Small difference in the handling of the options
-            .Case("ignoreOptionClashes", true)
+                    // Small difference in the handling of the options
+                    .Case("ignoreOptionClashes", true)
 
-            // Not implemented because I was focusing on Linux! ### FIXME
-            .Case("frameworkSearchPath", true)
+                    // Not implemented because I was focusing on Linux! ### FIXME
+                    .Case("frameworkSearchPath", true)
 
-            // The header is not self contained (that could be easy to solve upstream)
-            .Case("templateGtGt", true)
+                    // The header is not self contained (that could be easy to solve
+                    // upstream)
+                    .Case("templateGtGt", true)
 
-            // moc -E  to preprocess behave differently
-            .Case("unterminatedFunctionMacro", true)
+                    // moc -E  to preprocess behave differently
+                    .Case("unterminatedFunctionMacro", true)
 
-            // MSVC compat mode for $INCLUDE environment variable not implemented
-            .Case("environmentIncludePaths", true)
+                    // MSVC compat mode for $INCLUDE environment variable not
+                    // implemented
+                    .Case("environmentIncludePaths", true)
 
-            .Default(false);
-    } else if(ClassName == "tst_QObject"){
+                    .Default(false);
+    } else if (ClassName == "tst_QObject") {
         if (MethodName == "normalize") {
-            // "unsigned long int" is a builtin type, but is not registered by default, and clang
-            // mangle it  as "unsigned long" with no way to get what was the actual string.
-            // By registering the right string we ensure that the function is found when.
-            // This is actually a bug in QMetaType that should be fixed in Qt https://codereview.qt-project.org/55193
-            OS << "\n            qRegisterMetaType<unsigned long int>(\"unsigned long int\");\n            ";
+            // "unsigned long int" is a builtin type, but is not registered by
+            // default, and clang mangle it  as "unsigned long" with no way to
+            // get what was the actual string. By registering the right string
+            // we ensure that the function is found when. This is actually a bug
+            // in QMetaType that should be fixed in Qt
+            // https://codereview.qt-project.org/55193
+            OS << "\n            qRegisterMetaType<unsigned long "
+                  "int>(\"unsigned long int\");\n            ";
             return false; // The normal function will be called
         }
     }

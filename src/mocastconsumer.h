@@ -19,35 +19,32 @@
 
 #pragma once
 
-#include <clang/Frontend/CompilerInstance.h>
 #include <clang/AST/ASTConsumer.h>
+#include <clang/Frontend/CompilerInstance.h>
 
 #include "mocng.h"
 
 class MocPPCallbacks;
 
-class MocASTConsumer : public clang::ASTConsumer
-{
-protected:
-    clang::CompilerInstance &ci;
-    clang::ASTContext *ctx = nullptr;
-    MocPPCallbacks *PPCallbacks = nullptr;
+class MocASTConsumer : public clang::ASTConsumer {
+  protected:
+    clang::CompilerInstance& ci;
+    clang::ASTContext* ctx = nullptr;
+    MocPPCallbacks* PPCallbacks = nullptr;
 
     std::vector<ClassDef> objects;
     std::vector<NamespaceDef> namespaces;
     MocNg Moc;
 
-public:
-    MocASTConsumer(clang::CompilerInstance &ci) :ci(ci)
-    { }
+  public:
+    MocASTConsumer(clang::CompilerInstance& ci) : ci(ci) {}
 
     void Initialize(clang::ASTContext& Ctx) override;
     void HandleTagDeclDefinition(clang::TagDecl* D) override;
     bool HandleTopLevelDecl(clang::DeclGroupRef D) override;
 
-    virtual bool shouldParseDecl(clang::Decl *D) { return true; }
+    virtual bool shouldParseDecl(clang::Decl* D) { return true; }
 
-private:
-    void HandleNamespaceDefinition(clang::NamespaceDecl *D);
+  private:
+    void HandleNamespaceDefinition(clang::NamespaceDecl* D);
 };
-

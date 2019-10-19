@@ -18,17 +18,20 @@
  */
 
 #include "propertyparser.h"
+
+#include <clang/AST/CanonicalType.h>
 #include <clang/Sema/Lookup.h>
 #include <clang/Sema/SemaDiagnostic.h>
-#include <clang/AST/CanonicalType.h>
+
 #include <iostream>
 
-std::string PropertyParser::LexemUntil(clang::tok::TokenKind Until, bool Templ) {
+std::string PropertyParser::LexemUntil(clang::tok::TokenKind Until, bool Templ)
+{
     int ParensLevel = 0;
     int BrLevel = 0;
     std::string Result;
     do {
-        switch(+CurrentTok.getKind()) {
+        switch (+CurrentTok.getKind()) {
         case clang::tok::eof:
             return Result;
         case clang::tok::l_square:
@@ -51,7 +54,7 @@ std::string PropertyParser::LexemUntil(clang::tok::TokenKind Until, bool Templ) 
             break;
         case clang::tok::greatergreater:
             if (!ParensLevel)
-                BrLevel-=2;
+                BrLevel -= 2;
             break;
         }
 
@@ -61,13 +64,14 @@ std::string PropertyParser::LexemUntil(clang::tok::TokenKind Until, bool Templ) 
         if ((Last == '<' && Sp[0] == ':') || (IsIdentChar(Last) && IsIdentChar(Sp[0])))
             Result += " ";
         Result += Sp;
-    } while ((ParensLevel != 0 || !PrevToken.is(Until) || (Templ && BrLevel > 0)) && ParensLevel >= 0);
+    } while ((ParensLevel != 0 || !PrevToken.is(Until) || (Templ && BrLevel > 0)) &&
+             ParensLevel >= 0);
     return Result;
 }
 
-
-std::string PropertyParser::parseUnsigned() {
-    switch(+CurrentTok.getKind()) {
+std::string PropertyParser::parseUnsigned()
+{
+    switch (+CurrentTok.getKind()) {
     case clang::tok::kw_int:
         Consume();
         return "uint";
@@ -94,14 +98,15 @@ std::string PropertyParser::parseUnsigned() {
     }
 }
 
-std::string PropertyParser::parseTemplateType() {
+std::string PropertyParser::parseTemplateType()
+{
     std::string Result;
     int ParensLevel = 0;
     bool MoveConstToFront = true;
     bool HasConst = false;
     clang::CXXScopeSpec SS;
     do {
-        switch(+CurrentTok.getKind()) {
+        switch (+CurrentTok.getKind()) {
         case clang::tok::eof:
             return {};
         case clang::tok::greatergreater:
@@ -109,20 +114,20 @@ std::string PropertyParser::parseTemplateType() {
                 break;
             CurrentTok.setKind(clang::tok::greater);
             PrevToken.setKind(clang::tok::greater);
-            if (Result[Result.size()-1] == '>')
+            if (Result[Result.size() - 1] == '>')
                 Result += " ";
             Result += ">";
             return Result;
         case clang::tok::greater:
             if (ParensLevel > 0)
                 break;
-            if (Result[Result.size()-1] == '>')
+            if (Result[Result.size() - 1] == '>')
                 Result += " ";
             Result += ">";
             Consume();
             return Result;
         case clang::tok::less:
-            if (ParensLevel > 0 )
+            if (ParensLevel > 0)
                 break;
             Result += "<";
             Consume();
@@ -158,7 +163,7 @@ std::string PropertyParser::parseTemplateType() {
             break;
         case clang::tok::kw_unsigned:
             if (IsIdentChar(Result[Result.size()]))
-                Result+=" ";
+                Result += " ";
             Result += parseUnsigned();
             continue;
         case clang::tok::amp:
@@ -167,7 +172,8 @@ std::string PropertyParser::parseTemplateType() {
             MoveConstToFront = false;
             break;
         case clang::tok::identifier: {
-            clang::LookupResult Found(Sema, CurrentTok.getIdentifierInfo(), OriginalLocation(CurrentTok.getLocation()),
+            clang::LookupResult Found(Sema, CurrentTok.getIdentifierInfo(),
+                                      OriginalLocation(CurrentTok.getLocation()),
                                       clang::Sema::LookupNestedNameSpecifierName);
             Sema.LookupParsedName(Found, Sema.getScopeForContext(RD), &SS);
             clang::CXXRecordDecl* D = Found.getAsSingle<clang::CXXRecordDecl>();
@@ -175,10 +181,11 @@ std::string PropertyParser::parseTemplateType() {
                 IsPossiblyForwardDeclared = true;
             Found.suppressDiagnostics();
             break;
-          }
+        }
         case clang::tok::coloncolon:
             if (PrevToken.getIdentifierInfo())
-                SS.Extend(Sema.getASTContext(), PrevToken.getIdentifierInfo(), OriginalLocation(), OriginalLocation(CurrentTok.getLocation()));
+                SS.Extend(Sema.getASTContext(), PrevToken.getIdentifierInfo(), OriginalLocation(),
+                          OriginalLocation(CurrentTok.getLocation()));
             break;
         }
 
@@ -194,7 +201,8 @@ std::string PropertyParser::parseTemplateType() {
     return Result;
 }
 
-std::string PropertyParser::parseType(bool SupressDiagnostics) {
+std::string PropertyParser::parseType(bool SupressDiagnostics)
+{
     std::string Result;
     bool HasConst = Test(clang::tok::kw_const);
     bool HasVolatile = Test(clang::tok::kw_volatile);
@@ -208,7 +216,7 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
     } else if (Test(clang::tok::kw_signed)) {
         Result += "signed";
         while (true) {
-            switch(+CurrentTok.getKind()) {
+            switch (+CurrentTok.getKind()) {
             case clang::tok::kw_int:
             case clang::tok::kw_long:
             case clang::tok::kw_short:
@@ -220,14 +228,10 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
             break;
         }
     } else {
-        while(Test(clang::tok::kw_int)
-                || Test(clang::tok::kw_long)
-                || Test(clang::tok::kw_short)
-                || Test(clang::tok::kw_char)
-                || Test(clang::tok::kw_void)
-                || Test(clang::tok::kw_bool)
-                || Test(clang::tok::kw_double)
-                || Test(clang::tok::kw_float)) {
+        while (Test(clang::tok::kw_int) || Test(clang::tok::kw_long) ||
+               Test(clang::tok::kw_short) || Test(clang::tok::kw_char) ||
+               Test(clang::tok::kw_void) || Test(clang::tok::kw_bool) ||
+               Test(clang::tok::kw_double) || Test(clang::tok::kw_float)) {
             if (!Result.empty())
                 Result += " ";
             Result += Spelling();
@@ -239,11 +243,13 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
         if (Test(clang::tok::coloncolon)) {
             SS.MakeGlobal(Sema.getASTContext(), OriginalLocation());
             Result += Spelling();
-        } do {
+        }
+        do {
             if (!Test(clang::tok::identifier)) {
-                PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                           PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                           "Invalid token while parsing type"));
+                PP.getDiagnostics().Report(
+                    OriginalLocation(CurrentTok.getLocation()),
+                    PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                        "Invalid token while parsing type"));
                 return {};
             }
             Result += Spelling();
@@ -254,10 +260,11 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
                 Result += parseTemplateType();
 
                 if (!PrevToken.is(clang::tok::greater)) {
-                    PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                               PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                               "parse error in type"));
-                    return {}; //error;
+                    PP.getDiagnostics().Report(
+                        OriginalLocation(CurrentTok.getLocation()),
+                        PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                            "parse error in type"));
+                    return {}; // error;
                 }
             }
 
@@ -271,13 +278,17 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
                 clang::Sema::NestedNameSpecInfo NameInfo(IdentTok.getIdentifierInfo(),
                                                          OriginalLocation(IdentTok.getLocation()),
                                                          OriginalLocation(CurrentTok.getLastLoc()));
-                if (Sema.ActOnCXXNestedNameSpecifier(Sema.getScopeForContext(RD), NameInfo, false, SS))
+                if (Sema.ActOnCXXNestedNameSpecifier(Sema.getScopeForContext(RD), NameInfo, false,
+                                                     SS))
 #else
-                if (Sema.ActOnCXXNestedNameSpecifier(Sema.getScopeForContext(RD), *IdentTok.getIdentifierInfo(),
-                    OriginalLocation(IdentTok.getLocation()), OriginalLocation(CurrentTok.getLastLoc()), {}, false, SS))
+                if (Sema.ActOnCXXNestedNameSpecifier(
+                        Sema.getScopeForContext(RD), *IdentTok.getIdentifierInfo(),
+                        OriginalLocation(IdentTok.getLocation()),
+                        OriginalLocation(CurrentTok.getLastLoc()), {}, false, SS))
 #endif
                 {
-                    SS.SetInvalid({OriginalLocation(IdentTok.getLocation()), OriginalLocation(CurrentTok.getLastLoc())});
+                    SS.SetInvalid({OriginalLocation(IdentTok.getLocation()),
+                                   OriginalLocation(CurrentTok.getLastLoc())});
                 }
             }
 
@@ -285,14 +296,13 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
         } while (true);
 
         if (NoTemplates && !SupressDiagnostics) {
-
             IsEnum = true; // That's how moc does it.
 
             if (SS.isNotEmpty() && SS.isValid()) {
                 Extra = llvm::dyn_cast_or_null<clang::CXXRecordDecl>(Sema.computeDeclContext(SS));
 
                 clang::LookupResult Found(Sema, PrevToken.getIdentifierInfo(), OriginalLocation(),
-                                        clang::Sema::LookupNestedNameSpecifierName);
+                                          clang::Sema::LookupNestedNameSpecifierName);
                 /*if (SS.isEmpty())
                     Sema.LookupQualifiedName(Found, RD);
                 else {*/
@@ -301,19 +311,24 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
                 //}
                 clang::EnumDecl* R = Found.getAsSingle<clang::EnumDecl>();
                 /*if (!R) {
-                if (clang::TypedefDecl *TD = Found.getAsSingle<clang::TypedefDecl>()) {
-                    const clang::TemplateSpecializationType* TDR = TD->getUnderlyingType()->getAs<clang::TemplateSpecializationType>();
-                    if(TDR && TDR->getNumArgs() == 1 && TDR->getTemplateName().getAsTemplateDecl()->getName() == "QFlags") {
-                        if (const clang::EnumType* ET = TDR->getArg(0).getAsType()->getAs<clang::EnumType>())
-                            R = ET->getDecl();
+                if (clang::TypedefDecl *TD =
+                Found.getAsSingle<clang::TypedefDecl>()) { const
+                clang::TemplateSpecializationType* TDR =
+                TD->getUnderlyingType()->getAs<clang::TemplateSpecializationType>();
+                    if(TDR && TDR->getNumArgs() == 1 &&
+                TDR->getTemplateName().getAsTemplateDecl()->getName() ==
+                "QFlags") { if (const clang::EnumType* ET =
+                TDR->getArg(0).getAsType()->getAs<clang::EnumType>()) R =
+                ET->getDecl();
                     }
                 }*/
 
                 /*if (!R)
                     IsEnum = false;*/
 
-                if (Extra == RD) Extra = nullptr;
-                if(Extra) {
+                if (Extra == RD)
+                    Extra = nullptr;
+                if (Extra) {
                     bool isQObjectOrQGadget = false;
                     for (auto it = Extra->decls_begin(); it != Extra->decls_end(); ++it) {
                         auto ND = llvm::dyn_cast<clang::NamedDecl>(*it);
@@ -349,9 +364,7 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
         HasConst = true;
     }
 
-    while (Test(clang::tok::kw_volatile)
-            || Test(clang::tok::star)
-            || Test(clang::tok::kw_const)) {
+    while (Test(clang::tok::kw_volatile) || Test(clang::tok::star) || Test(clang::tok::kw_const)) {
         Extra = nullptr;
         IsEnum = false;
         Result += Spelling();
@@ -366,7 +379,6 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
         Test(clang::tok::ampamp); // skip rvalue ref
     }
 
-
     if (HasVolatile)
         Result = "volatile " + Result;
     if (HasConst)
@@ -375,12 +387,13 @@ std::string PropertyParser::parseType(bool SupressDiagnostics) {
     return Result;
 }
 
-PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
+PropertyDef PropertyParser::parseProperty(bool PrivateProperty)
+{
     PropertyDef Def;
     Consume();
     std::string type = parseType(false);
     if (type.empty()) {
-        //Error
+        // Error
         return Def;
     }
 
@@ -401,36 +414,39 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
     Def.isEnum = IsEnum; // Well, that's what moc does.
 
     if (!CurrentTok.getIdentifierInfo()) {
-        PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                        PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                        "Expected identifier as Q_PROPERTY name"));
+        PP.getDiagnostics().Report(
+            OriginalLocation(CurrentTok.getLocation()),
+            PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                "Expected identifier as Q_PROPERTY name"));
         return Def;
     }
     Consume();
 
     Def.name = Spelling();
 
-    while(Test(clang::tok::identifier)) {
+    while (Test(clang::tok::identifier)) {
         std::string l = Spelling();
         clang::SourceLocation KeywordLocation = OriginalLocation();
         if (l == "CONSTANT") {
             Def.constant = true;
             continue;
-        } else if(l == "FINAL") {
+        } else if (l == "FINAL") {
             Def.final = true;
             continue;
         } else if (l == "REVISION") {
             if (!Test(clang::tok::numeric_constant)) {
-                PP.getDiagnostics().Report(OriginalLocation(),
-                                           PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                           "Expected numeric constant after REVISION in Q_PROPERTY"));
+                PP.getDiagnostics().Report(OriginalLocation(), PP.getDiagnostics().getCustomDiagID(
+                                                                   clang::DiagnosticsEngine::Error,
+                                                                   "Expected numeric constant "
+                                                                   "after REVISION in Q_PROPERTY"));
                 return Def;
             }
             Def.revision = atoi(Spelling().c_str());
             if (Def.revision < 0) {
-                PP.getDiagnostics().Report(OriginalLocation(),
-                                           PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                           "Invalid REVISION number in Q_PROPERTY"));
+                PP.getDiagnostics().Report(
+                    OriginalLocation(),
+                    PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                        "Invalid REVISION number in Q_PROPERTY"));
                 return Def;
             }
             continue;
@@ -450,12 +466,13 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
             } else {
                 v2 = "()";
             }
-        } else if(Test(clang::tok::kw_true) || Test(clang::tok::kw_false)) {
+        } else if (Test(clang::tok::kw_true) || Test(clang::tok::kw_false)) {
             v = Spelling();
         } else {
             PP.getDiagnostics().Report(OriginalLocation(),
-                                       PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                       "Parse error in Q_PROPERTY: Expected identifier"));
+                                       PP.getDiagnostics().getCustomDiagID(
+                                           clang::DiagnosticsEngine::Error,
+                                           "Parse error in Q_PROPERTY: Expected identifier"));
             return Def;
         }
 
@@ -464,37 +481,42 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
         else if (l == "READ") {
             Def.read = v;
             if (IsIdent && !PrivateProperty) {
-                clang::LookupResult Found(Sema, PP.getIdentifierInfo(v), ParamLoc, clang::Sema::LookupMemberName);
+                clang::LookupResult Found(Sema, PP.getIdentifierInfo(v), ParamLoc,
+                                          clang::Sema::LookupMemberName);
                 Sema.LookupQualifiedName(Found, RD);
                 if (Found.empty()) {
 #if CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR < 6
                     clang::DeclFilterCCC<clang::CXXMethodDecl> Validator;
 #endif
                     if (clang::TypoCorrection Corrected =
-                            Sema.CorrectTypo(Found.getLookupNameInfo(), clang::Sema::LookupMemberName,
-                                             nullptr, nullptr,
+                            Sema.CorrectTypo(Found.getLookupNameInfo(),
+                                             clang::Sema::LookupMemberName, nullptr, nullptr,
 #if CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR < 6
                                              Validator,
 #else
-                                             llvm::make_unique<clang::DeclFilterCCC<clang::CXXMethodDecl>>(),
+                                             llvm::make_unique<
+                                                 clang::DeclFilterCCC<clang::CXXMethodDecl>>(),
 #endif
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR >= 5
                                              clang::Sema::CTK_ErrorRecovery,
 #endif
                                              RD)) {
-                        PP.getDiagnostics().Report(Found.getNameLoc(),
-                                                   PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Warning,
+                        PP.getDiagnostics().Report(
+                            Found.getNameLoc(), PP.getDiagnostics().getCustomDiagID(
+                                                    clang::DiagnosticsEngine::Warning,
                                                     "READ function %0 not found; did you mean %1"))
                             << Found.getLookupName() << Corrected.getCorrection()
-                            << clang::FixItHint::CreateReplacement(Found.getNameLoc(),
-                                                                   Corrected.getAsString(PP.getLangOpts()));
-                        PP.getDiagnostics().Report(Corrected.getCorrectionDecl()->getLocation(), clang::diag::note_previous_decl)
+                            << clang::FixItHint::CreateReplacement(
+                                   Found.getNameLoc(), Corrected.getAsString(PP.getLangOpts()));
+                        PP.getDiagnostics().Report(Corrected.getCorrectionDecl()->getLocation(),
+                                                   clang::diag::note_previous_decl)
                             << Corrected.getCorrection();
 
                     } else {
-                        PP.getDiagnostics().Report(ParamLoc,
-                                                   PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Warning,
-                                                   "READ function %0 not found")) << Found.getLookupName();
+                        PP.getDiagnostics().Report(ParamLoc, PP.getDiagnostics().getCustomDiagID(
+                                                                 clang::DiagnosticsEngine::Warning,
+                                                                 "READ function %0 not found"))
+                            << Found.getLookupName();
                     }
                 } else if (!Found.isAmbiguous()) {
                     clang::CXXMethodDecl* M = Found.getAsSingle<clang::CXXMethodDecl>();
@@ -505,15 +527,15 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
                         clang::QualType T = M->getResultType();
 #endif
                         if (T->isPointerType() && type.back() != '*') {
-                          clang::PrintingPolicy PrPo(PP.getLangOpts());
-                          PrPo.SuppressTagKeyword = true;
-                          if (T->getPointeeType().getUnqualifiedType().getAsString(PrPo) == type)
-                            Def.PointerHack = true;
+                            clang::PrintingPolicy PrPo(PP.getLangOpts());
+                            PrPo.SuppressTagKeyword = true;
+                            if (T->getPointeeType().getUnqualifiedType().getAsString(PrPo) == type)
+                                Def.PointerHack = true;
                         }
                     }
                 }
                 Found.suppressDiagnostics();
-            } //FIXME: else
+            } // FIXME: else
         } else if (l == "RESET")
             Def.reset = v + v2;
         else if (l == "SCRIPTABLE")
@@ -532,22 +554,23 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty) {
         } else if (l == "USER")
             Def.user = v + v2;
         else {
-            PP.getDiagnostics().Report(OriginalLocation(KeywordLocation),
-                                       PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                       "Expected a Q_PROPERTY keyword"));
+            PP.getDiagnostics().Report(
+                OriginalLocation(KeywordLocation),
+                PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                    "Expected a Q_PROPERTY keyword"));
             return Def;
         }
     }
     if (!CurrentTok.is(clang::tok::eof)) {
-        PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                   PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                   "Expected a Q_PROPERTY keyword"));
+        PP.getDiagnostics().Report(
+            OriginalLocation(CurrentTok.getLocation()),
+            PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                "Expected a Q_PROPERTY keyword"));
         return Def;
     }
 
     return Def;
 }
-
 
 PrivateSlotDef PropertyParser::parsePrivateSlot()
 {
@@ -557,38 +580,39 @@ PrivateSlotDef PropertyParser::parsePrivateSlot()
 
     if (!Test(clang::tok::identifier)) {
         PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                            PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                            "Expected slot name"));
+                                   PP.getDiagnostics().getCustomDiagID(
+                                       clang::DiagnosticsEngine::Error, "Expected slot name"));
         return {};
     }
 
     Slot.Name = Spelling();
 
     if (!Test(clang::tok::l_paren)) {
-        PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                    PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                    "Expected parenthesis in slot signature"));
+        PP.getDiagnostics().Report(
+            OriginalLocation(CurrentTok.getLocation()),
+            PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                "Expected parenthesis in slot signature"));
         return {};
     }
 
     do {
         if (CurrentTok.is(clang::tok::eof)) {
-            PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                       PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                       "Missing closing parenthesis"));
+            PP.getDiagnostics().Report(
+                OriginalLocation(CurrentTok.getLocation()),
+                PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                    "Missing closing parenthesis"));
             return Slot;
         }
         if (Test(clang::tok::r_paren)) {
             break;
         }
         std::string T = parseType();
-        if (T.empty()) //Error;
+        if (T.empty()) // Error;
             return Slot;
 
         Slot.Args.push_back(std::move(T));
 
         Test(clang::tok::identifier);
-
 
         if (Test(clang::tok::equal)) {
             Slot.NumDefault++;
@@ -596,14 +620,15 @@ PrivateSlotDef PropertyParser::parsePrivateSlot()
             if (PrevToken.is(clang::tok::r_paren))
                 break;
             if (!PrevToken.is(clang::tok::comma)) {
-                PP.getDiagnostics().Report(OriginalLocation(),
+                PP.getDiagnostics().Report(
+                    OriginalLocation(),
                     PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                    "Parse error in default argument"));
+                                                        "Parse error in default argument"));
                 return Slot;
             }
             continue;
         } else if (Slot.NumDefault) {
-            //FIXME: error;
+            // FIXME: error;
         }
 
         if (Test(clang::tok::comma))
@@ -613,9 +638,10 @@ PrivateSlotDef PropertyParser::parsePrivateSlot()
             break;
         }
 
-        PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                   PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                   "Expected comma in slot signature"));
+        PP.getDiagnostics().Report(
+            OriginalLocation(CurrentTok.getLocation()),
+            PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
+                                                "Expected comma in slot signature"));
         return Slot;
     } while (true);
 
@@ -624,10 +650,9 @@ PrivateSlotDef PropertyParser::parsePrivateSlot()
 
     if (!CurrentTok.is(clang::tok::eof)) {
         PP.getDiagnostics().Report(OriginalLocation(CurrentTok.getLocation()),
-                                   PP.getDiagnostics().getCustomDiagID(clang::DiagnosticsEngine::Error,
-                                   "Unexpected token"));
+                                   PP.getDiagnostics().getCustomDiagID(
+                                       clang::DiagnosticsEngine::Error, "Unexpected token"));
     }
 
     return Slot;
 }
-

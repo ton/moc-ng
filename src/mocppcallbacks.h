@@ -17,76 +17,88 @@
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <clang/Lex/Preprocessor.h>
 #include <clang/Basic/Version.h>
+#include <clang/Lex/Preprocessor.h>
+
 #include <set>
 
 class MocPPCallbacks : public clang::PPCallbacks {
-    clang::Preprocessor &PP;
+    clang::Preprocessor& PP;
 
     bool IncludeNotFoundSupressed = false;
     bool ShouldWarnHeaderNotFound = false;
     bool InQMOCRUN = false;
     std::set<std::string> PossibleTags;
-    std::map<clang::SourceLocation, std::string> &Tags;
+    std::map<clang::SourceLocation, std::string>& Tags;
 
-public:
-
-    MocPPCallbacks(clang::Preprocessor &PP, std::map<clang::SourceLocation, std::string> &Tags) : PP(PP), Tags(Tags) {}
+  public:
+    MocPPCallbacks(clang::Preprocessor& PP, std::map<clang::SourceLocation, std::string>& Tags)
+        : PP(PP), Tags(Tags)
+    {
+    }
 
     bool IsInMainFile = false;
     void InjectQObjectDefs(clang::SourceLocation Loc);
     void EnterMainFile(clang::StringRef Name);
 
-protected:
+  protected:
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR >= 7
-    typedef const clang::MacroDefinition &MacroParam;
-    typedef const clang::MacroDirective *MacroParam2;
+    typedef const clang::MacroDefinition& MacroParam;
+    typedef const clang::MacroDirective* MacroParam2;
 #elif CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 2
-    typedef const clang::MacroDirective *MacroParam;
-    typedef const clang::MacroDirective *MacroParam2;
+    typedef const clang::MacroDirective* MacroParam;
+    typedef const clang::MacroDirective* MacroParam2;
 #else
-    typedef const clang::MacroInfo *MacroParam;
+    typedef const clang::MacroInfo* MacroParam;
     typedef MacroParam MacroParam2;
 #endif
 
-
     void MacroUndefined(const clang::Token& MacroNameTok, MacroParam
 #if CLANG_VERSION_MAJOR >= 5
-                        , const clang::MacroDirective *
+                        ,
+                        const clang::MacroDirective*
 #endif
-                        ) override {
-        //Workaround to get moc's test to compile
+                        ) override
+    {
+        // Workaround to get moc's test to compile
         if (MacroNameTok.getIdentifierInfo()->getName() == "QT_NO_KEYWORDS") {
-            //re-inject qobjectdefs
+            // re-inject qobjectdefs
             InjectQObjectDefs(MacroNameTok.getLocation());
         }
     }
 
-    void FileChanged(clang::SourceLocation Loc, FileChangeReason Reason, clang::SrcMgr::CharacteristicKind FileType,
-                             clang::FileID PrevFID) override;
-    bool FileNotFound(llvm::StringRef FileName, llvm::SmallVectorImpl< char >& RecoveryPath) override;
+    void FileChanged(clang::SourceLocation Loc, FileChangeReason Reason,
+                     clang::SrcMgr::CharacteristicKind FileType, clang::FileID PrevFID) override;
+    bool FileNotFound(llvm::StringRef FileName, llvm::SmallVectorImpl<char>& RecoveryPath) override;
     void InclusionDirective(clang::SourceLocation HashLoc, const clang::Token& IncludeTok,
-                            llvm::StringRef FileName, bool IsAngled, clang::CharSourceRange FilenameRange,
-                            const clang::FileEntry* File, llvm::StringRef SearchPath, llvm::StringRef RelativePath,
+                            llvm::StringRef FileName, bool IsAngled,
+                            clang::CharSourceRange FilenameRange, const clang::FileEntry* File,
+                            llvm::StringRef SearchPath, llvm::StringRef RelativePath,
                             const clang::Module* Imported
 #if CLANG_VERSION_MAJOR >= 7
-                            , clang::SrcMgr::CharacteristicKind
+                            ,
+                            clang::SrcMgr::CharacteristicKind
 #endif
-                  ) override;
+                            ) override;
 
-    void Defined(const clang::Token& MacroNameTok
+    void Defined(
+        const clang::Token& MacroNameTok
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 2
-            ,MacroParam = {}
+        ,
+        MacroParam = {}
 #endif
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 3
-            , clang::SourceRange = {}
+        ,
+        clang::SourceRange = {}
 #endif
-    ) override {
+        ) override
+    {
         if (MacroNameTok.getIdentifierInfo()->getName() != "Q_MOC_RUN")
             return;
-        auto F = PP.getSourceManager().getFileEntryForID(PP.getSourceManager().getFileID(MacroNameTok.getLocation()));
-        if (!F) return;
+        auto F = PP.getSourceManager().getFileEntryForID(
+            PP.getSourceManager().getFileID(MacroNameTok.getLocation()));
+        if (!F)
+            return;
         llvm::StringRef name = F->getName();
         if (name.endswith("qobjectdefs.h") || name.endswith("qglobal.h"))
             return;
@@ -94,37 +106,49 @@ protected:
     }
     void Ifdef(clang::SourceLocation Loc, const clang::Token& MacroNameTok
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 2
-            ,MacroParam
+               ,
+               MacroParam
 #endif
-    ) override { Defined(MacroNameTok); }
+               ) override
+    {
+        Defined(MacroNameTok);
+    }
     void Ifndef(clang::SourceLocation Loc, const clang::Token& MacroNameTok
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 2
-            ,MacroParam
+                ,
+                MacroParam
 #endif
-    ) override { Defined(MacroNameTok); }
-
-    void Endif(clang::SourceLocation Loc, clang::SourceLocation IfLoc)  override {
-        InQMOCRUN = false;
-        //TODO: handle embedded Ifs
+                ) override
+    {
+        Defined(MacroNameTok);
     }
 
-    void MacroDefined(const clang::Token& MacroNameTok, MacroParam2) override {
+    void Endif(clang::SourceLocation Loc, clang::SourceLocation IfLoc) override
+    {
+        InQMOCRUN = false;
+        // TODO: handle embedded Ifs
+    }
+
+    void MacroDefined(const clang::Token& MacroNameTok, MacroParam2) override
+    {
         if (!InQMOCRUN)
             return;
         PossibleTags.insert(MacroNameTok.getIdentifierInfo()->getName());
     }
 
-
     void MacroExpands(const clang::Token& MacroNameTok, MacroParam, clang::SourceRange Range
 #if CLANG_VERSION_MAJOR != 3 || CLANG_VERSION_MINOR > 2
-            , const clang::MacroArgs *
+                      ,
+                      const clang::MacroArgs*
 #endif
-    ) override {
-        if (InQMOCRUN) return;
+                      ) override
+    {
+        if (InQMOCRUN)
+            return;
         if (PossibleTags.count(MacroNameTok.getIdentifierInfo()->getName())) {
-            clang::SourceLocation FileLoc = PP.getSourceManager().getFileLoc(MacroNameTok.getLocation());
+            clang::SourceLocation FileLoc =
+                PP.getSourceManager().getFileLoc(MacroNameTok.getLocation());
             Tags.insert({FileLoc, MacroNameTok.getIdentifierInfo()->getName()});
         }
     }
-
 };

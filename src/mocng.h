@@ -19,34 +19,36 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-#include <iterator>
-#include <algorithm>
-#include <set>
-#include <unordered_map>
 #include <clang/Basic/SourceLocation.h>
-#include "qbjs.h"
+
+#include <algorithm>
+#include <iterator>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
 #include "clangversionabstraction.h"
+#include "qbjs.h"
 
 class MocPPCallbacks;
 namespace clang {
-class CXXMethodDecl;
-class CXXRecordDecl;
-class CXXConstructorDecl;
-class NamespaceDecl;
-class EnumDecl;
-class Preprocessor;
-class Sema;
-class TypeDecl;
-class Type;
-class QualType;
-}
+    class CXXMethodDecl;
+    class CXXRecordDecl;
+    class CXXConstructorDecl;
+    class NamespaceDecl;
+    class EnumDecl;
+    class Preprocessor;
+    class Sema;
+    class TypeDecl;
+    class Type;
+    class QualType;
+} // namespace clang
 
 struct NotifyDef {
     std::string Str;
     clang::SourceLocation Loc;
-    clang::CXXMethodDecl *MD = nullptr;
+    clang::CXXMethodDecl* MD = nullptr;
     int notifyId = -1;
 };
 
@@ -59,8 +61,9 @@ struct PrivateSlotDef {
 };
 
 struct PropertyDef {
-    std::string name, type, member, read, write, reset, designable = "true", scriptable = "true", editable, stored = "true",
-                user = "false", inPrivateClass;
+    std::string name, type, member, read, write, reset, designable = "true", scriptable = "true",
+                                                        editable, stored = "true", user = "false",
+                                                        inPrivateClass;
     NotifyDef notify;
 
     bool constant = false;
@@ -69,8 +72,8 @@ struct PropertyDef {
     bool isEnum = false;
 
     int revision = 0;
-    bool PointerHack = false; // If the READ method returns a pointer to the type
-    bool PossiblyForwardDeclared = false;  //if the type is only forward declared
+    bool PointerHack = false;             // If the READ method returns a pointer to the type
+    bool PossiblyForwardDeclared = false; // if the type is only forward declared
 };
 
 struct PluginData {
@@ -81,7 +84,8 @@ struct PluginData {
 struct BaseDef {
     std::vector<std::tuple<clang::EnumDecl*, std::string, bool>> Enums;
 
-    void addEnum(clang::EnumDecl *E, std::string Alias, bool IsFlag) {
+    void addEnum(clang::EnumDecl* E, std::string Alias, bool IsFlag)
+    {
         for (auto I : Enums)
             if (std::get<1>(I) == Alias)
                 return;
@@ -89,8 +93,9 @@ struct BaseDef {
         Enums.emplace_back(E, std::move(Alias), IsFlag);
     }
 
-    std::vector<clang::CXXRecordDecl *> Extra;
-    void addExtra(clang::CXXRecordDecl *E) {
+    std::vector<clang::CXXRecordDecl*> Extra;
+    void addExtra(clang::CXXRecordDecl* E)
+    {
         if (!E)
             return;
         if (std::find(Extra.begin(), Extra.end(), E) != Extra.end())
@@ -102,8 +107,7 @@ struct BaseDef {
 };
 
 struct ClassDef : BaseDef {
-
-    clang::CXXRecordDecl *Record = nullptr;
+    clang::CXXRecordDecl* Record = nullptr;
 
     // This list only includes the things registered with the keywords
     std::vector<clang::CXXMethodDecl*> Signals;
@@ -111,7 +115,6 @@ struct ClassDef : BaseDef {
     std::vector<PrivateSlotDef> PrivateSlots;
     std::vector<clang::CXXMethodDecl*> Methods;
     std::vector<clang::CXXConstructorDecl*> Constructors;
-
 
     std::vector<std::string> Interfaces;
     PluginData Plugin;
@@ -128,20 +131,19 @@ struct ClassDef : BaseDef {
 };
 
 struct NamespaceDef : BaseDef {
-    clang::NamespaceDecl *Namespace = nullptr;
+    clang::NamespaceDecl* Namespace = nullptr;
     bool hasQNamespace = false;
 };
 
 class MocNg {
-public:
-
+  public:
     typedef std::set<const clang::Type*> MetaTypeSet;
     MetaTypeSet registered_meta_type;
 
     typedef std::unordered_map<std::string, const clang::CXXRecordDecl*> InterfaceMap;
     InterfaceMap interfaces;
 
-    ClassDef parseClass (clang::CXXRecordDecl* RD, clang::Sema& Sema);
+    ClassDef parseClass(clang::CXXRecordDecl* RD, clang::Sema& Sema);
     NamespaceDef parseNamespace(clang::NamespaceDecl* ND, clang::Sema& Sema);
 
     bool HasPlugin = false;
