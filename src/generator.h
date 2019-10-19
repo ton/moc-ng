@@ -82,7 +82,7 @@ enum MetaObjectFlags {
 enum MetaDataFlags { IsUnresolvedType = 0x80000000, TypeNameIndexMask = 0x7FFFFFFF };
 
 enum {
-    OutputRevision = 7,
+    OutputRevision = 6,
     MetaObjectPrivateFieldCount = 14, //  = sizeof(QMetaObjectPrivate) / sizeof(int)
     mocOutputRevision = 67,
     QT_VERSION = 0x050100

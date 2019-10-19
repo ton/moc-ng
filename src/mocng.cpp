@@ -349,7 +349,7 @@ static void parseClassInfo(BaseDef& Def, clang::Expr* SubExp, clang::Preprocesso
         ExtractLiterals(SubExp, PP, "Q_CLASSINFO", "Expected string literal in Q_CLASSINFO");
 
     if (Val1 && Val2) {
-        Def.ClassInfo.emplace_back(Val1->getString(), Val2->getString());
+        Def.ClassInfo.emplace_back(Val2->getString(), Val1->getString());
     }
 }
 

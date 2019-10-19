@@ -199,8 +199,6 @@ struct MocNGASTConsumer : public MocASTConsumer {
                 Out << "#include <QtCore/qplugin.h>\n";
         }
 
-        Out << "#include <QtCore/qbytearray.h>\n";
-
         Out << "#if !defined(Q_MOC_OUTPUT_REVISION)\n"
                "#error \"The header file '"
             << InFile
@@ -213,10 +211,7 @@ struct MocNGASTConsumer : public MocASTConsumer {
                "#error \"It cannot be used with the include files from this "
                "version of Qt.\"\n"
                "#endif\n\n"
-               "QT_BEGIN_MOC_NAMESPACE\n"
-               "#ifdef QT_WARNING_DISABLE_DEPRECATED\n"
-               "QT_WARNING_PUSH QT_WARNING_DISABLE_DEPRECATED\n"
-               "#endif\n";
+               "QT_BEGIN_MOC_NAMESPACE\n";
 
         decltype(OS) OS_TemplateHeader = nullptr;
         if (!Options.OutputTemplateHeader.empty()) {
@@ -245,10 +240,8 @@ struct MocNGASTConsumer : public MocASTConsumer {
             G.GenerateCode();
         };
 
-        llvm::StringRef footer = "QT_END_MOC_NAMESPACE\n"
-                                 "#ifdef QT_WARNING_DISABLE_DEPRECATED\n"
-                                 "QT_WARNING_POP\n"
-                                 "#endif\n";
+        llvm::StringRef footer = "QT_END_MOC_NAMESPACE\n";
+
         Out << footer;
         if (OS_TemplateHeader) {
             (*OS_TemplateHeader) << footer;

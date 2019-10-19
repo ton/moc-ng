@@ -63,7 +63,7 @@ add_executable(moc  main.cpp ${common_srcs})
 target_include_directories(moc PRIVATE ${CLANG_INCLUDE_DIRS})
 target_link_libraries(moc PRIVATE ${CLANG_LIBS})
 
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions -fno-rtti -Wall")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -fno-exceptions -fno-rtti -Wall")
 
 if (APPLE)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}  -stdlib=libc++ ")
