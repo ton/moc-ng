@@ -514,8 +514,6 @@ int main(int argc, const char** argv)
         Argv.push_back("-");
 
     // FIXME
-    Argv.push_back("-I/usr/include/qt");
-    Argv.push_back("-I/usr/include/qt/QtCore");
     Argv.push_back("-I.uic"); // workaround the fact that the uic generated
                               // code cannot be found
     Argv.push_back("-I/builtins");
