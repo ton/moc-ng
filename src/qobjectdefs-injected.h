@@ -71,6 +71,7 @@ static const char Injected[] = R"-(
 #undef Q_INVOKABLE
 #undef Q_SIGNAL
 #undef Q_SLOT
+#undef Q_ENUM_IMPL
 #undef Q_ENUM
 #undef Q_FLAG
 
