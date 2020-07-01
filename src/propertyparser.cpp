@@ -485,13 +485,18 @@ PropertyDef PropertyParser::parseProperty(bool PrivateProperty)
                                           clang::Sema::LookupMemberName);
                 Sema.LookupQualifiedName(Found, RD);
                 if (Found.empty()) {
-#if CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR < 6
+#define REF_ALLOCATOR                                                                              \
+    (CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR < 6) ||                                       \
+        (CLANG_VERSION_MAJOR == 7 && CLANG_VERSION_MINOR >= 1) ||                                  \
+        (CLANG_VERSION_MAJOR == 8 && CLANG_VERSION_PATCHLEVEL >= 1) || CLANG_VERSION_MAJOR >= 9
+
+#if REF_ALLOCATOR
                     clang::DeclFilterCCC<clang::CXXMethodDecl> Validator;
 #endif
                     if (clang::TypoCorrection Corrected =
                             Sema.CorrectTypo(Found.getLookupNameInfo(),
                                              clang::Sema::LookupMemberName, nullptr, nullptr,
-#if CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR < 6
+#if REF_ALLOCATOR
                                              Validator,
 #else
                                              llvm::make_unique<

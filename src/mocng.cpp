@@ -173,6 +173,10 @@ static void parsePluginMetaData(ClassDef& Def, clang::Expr* Content, clang::Sema
                               ,
                               nullptr
 #endif
+#if CLANG_VERSION_MAJOR >= 8
+                              ,
+                              nullptr
+#endif
                 );
 
             if (!File) {
