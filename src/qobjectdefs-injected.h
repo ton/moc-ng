@@ -54,7 +54,7 @@ static const char Injected[] = R"-(
 # undef  Q_SLOTS
 # define Q_SLOTS Q_SLOT
 # undef  Q_SIGNALS
-# define Q_SIGNALS public Q_SIGNAL
+# define Q_SIGNALS protected Q_SIGNAL
 # undef  Q_PRIVATE_SLOT
 # define Q_PRIVATE_SLOT(d, signature) QT_ANNOTATE_CLASS2(qt_private_slot, d, signature)
 
@@ -128,6 +128,8 @@ private: \
 #define Q_OBJECT QT_ANNOTATE_CLASS(qt_qobject, "")
 #undef Q_ENUM_IMPL
 #define Q_ENUM_IMPL(ENUM)
+#undef Q_DECLARE_INTERFACE
+#define Q_DECLARE_INTERFACE(interface, iid) static_assert(sizeof (#interface, iid), "qt_declare_interface");
 #endif
 
 #undef Q_OBJECT_FAKE

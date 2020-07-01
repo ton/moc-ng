@@ -25,13 +25,41 @@
 #include <clang/Sema/Sema.h>
 #include <llvm/Support/Format.h>
 
-#include <iostream>
 #include <string>
 
 #include "mocng.h"
 #include "qbjs.h"
 
 static constexpr int FieldWidth{4};
+
+static inline bool is_hex_char(char s)
+{
+    return ((s >= 'a' && s <= 'f') || (s >= 'A' && s <= 'F') || (s >= '0' && s <= '9'));
+}
+
+static inline bool is_octal_char(char s) { return (s >= '0' && s <= '7'); }
+
+static int lengthOfEscapeSequence(const std::string& s, int i)
+{
+    if (i >= s.length() - 1 || s[i] != '\\') {
+        return 1;
+    }
+    const int startPos = i;
+    ++i;
+    char ch = s[i];
+    if (ch == 'x') {
+        ++i;
+        while (i < s.length() && is_hex_char(s[i]))
+            ++i;
+    } else if (is_octal_char(ch)) {
+        while (i < startPos + 4 && i < s.length() && is_octal_char(s[i])) {
+            ++i;
+        }
+    } else { // single character escape sequence
+        i = std::min(i + 1, int(s.length()));
+    }
+    return i - startPos;
+}
 
 // Remove the decltype if possible
 static clang::QualType getDesugarType(const clang::QualType& QT)
@@ -135,6 +163,8 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
 
     OS << "\n // " << TypeName << ": signature, parameters, type, tag, flags\n";
 
+    int OverloadIdx{0};
+
     ForEachMethod(V, [&](const clang::CXXMethodDecl* M, int Clone) {
         unsigned int Flags = Type;
         if (M->getAccess() == clang::AS_private)
@@ -163,10 +193,82 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
         if (HasPrivateSignal(M))
             argc--;
 
+        struct Parameter {
+            std::string name;
+            std::string typeName;
+            bool hasDefault;
+        };
+
         std::string tag = Moc->GetTag(M->getSourceRange().getBegin(), Ctx.getSourceManager());
-        OS << "    " << StrIdx(M->getNameAsString()) << ", " << argc << ", " << ParamIndex << ", "
-           << StrIdx(tag) << ", 0x";
-        OS.write_hex(Flags) << ",\n";
+        int tagIdx{StrIdx(tag)};
+
+        std::vector<Parameter> parameters;
+        for (const clang::ParmVarDecl* pvd : M->parameters()) {
+            Parameter parameter;
+
+            // Determine name of the parameter.
+            const clang::VarDecl* vd{pvd->getCanonicalDecl()};
+            parameter.name = vd->getName();
+
+            // Determine name of the unqualified type of the parameter.
+            auto t{vd->getType()};
+            if (t->isReferenceType() && t.getNonReferenceType().isConstQualified())
+                t = t.getNonReferenceType();
+            t.removeLocalConst();
+            parameter.typeName = t.getAsString(PrintPolicy);
+
+            // Determine whether the parameter is a default parameter.
+            parameter.hasDefault = pvd->hasDefaultArg();
+
+            parameters.push_back(parameter);
+        }
+
+        // Construct signatures based on the parameters.
+        std::vector<std::string> expandedSignatures;
+        std::vector<std::string> expandedParameterNames;
+        std::string signature{M->getNameAsString() + '('};
+        std::string parameterNames;
+        for (size_t i{0}; i < parameters.size(); ++i) {
+            if (parameters[i].hasDefault) {
+                expandedSignatures.push_back(signature + ')');
+                expandedParameterNames.push_back(parameterNames);
+            }
+            if (i > 0) {
+                signature.push_back(',');
+                parameterNames.push_back(',');
+            }
+            signature.append(parameters[i].typeName);
+            parameterNames.append(parameters[i].name);
+        }
+        expandedSignatures.push_back(signature + ')');
+        expandedParameterNames.push_back(parameterNames);
+
+        if (expandedSignatures.size() > 1) {
+            if (OverloadIdx == 0) {
+                OverloadIdx = expandedSignatures.size() - 1;
+            } else {
+                --OverloadIdx;
+            }
+        }
+
+        // First, register signature/parameter strings such that they are
+        // compatible with Qt4's moc indexing.
+        for (int i = expandedSignatures.size() - 1; i >= 0; --i) {
+            StrIdx(expandedParameterNames[i]);
+            StrIdx(expandedSignatures[i]);
+        }
+
+        // Determine the parameter/signature index for the current overload.
+        int SignatureIdx{StrIdx(expandedSignatures[OverloadIdx])};
+        int ParamIdx{StrIdx(expandedParameterNames[OverloadIdx])};
+
+        // TODO(ton): third parameter should be a type; not supported in Qt4?
+        OS << "    " << llvm::format_decimal(SignatureIdx, FieldWidth) << ", "
+           << llvm::format_decimal(ParamIdx, FieldWidth) << ", "
+           << llvm::format_decimal(tagIdx, FieldWidth) << ", "
+           << llvm::format_decimal(tagIdx, FieldWidth) << ", 0x";
+        llvm::write_hex(OS, Flags, HexPrintStyle, 2);
+        OS << ",\n";
         ParamIndex += 1 + argc * 2;
     });
 }
@@ -374,7 +476,8 @@ static void PrintTemplateParameters(llvm::raw_ostream& Out, clang::TemplateParam
 Generator::Generator(const ClassDef* CDef, llvm::raw_ostream& OS, clang::ASTContext& Ctx,
                      MocNg* Moc, llvm::raw_ostream* OS_TemplateHeader)
     : Def(CDef), CDef(CDef), OS(OS), OS_TemplateHeader(OS_TemplateHeader ? *OS_TemplateHeader : OS),
-      Ctx(Ctx), PrintPolicy(Ctx.getPrintingPolicy()), Moc(Moc)
+      Ctx(Ctx), PrintPolicy(Ctx.getPrintingPolicy()), HexPrintStyle(llvm::HexPrintStyle::Lower),
+      Moc(Moc)
 {
     PrintPolicy.SuppressTagKeyword = true;
     PrintPolicy.SuppressUnwrittenScope = true;
@@ -490,19 +593,6 @@ void Generator::GenerateCode()
         Index += MethodCount;
 
     int ParamsIndex = Index;
-    /*
-    if (CDef) {
-        int TotalParameterCount =
-            AggregateParameterCount(CDef->Signals) + AggregateParameterCount(CDef->Slots) +
-            AggregateParameterCount(CDef->Methods) + AggregateParameterCount(CDef->Constructors);
-        for (const PrivateSlotDef& P : CDef->PrivateSlots)
-            TotalParameterCount +=
-                1 + P.Args.size() * (1 + P.NumDefault) - (P.NumDefault * (P.NumDefault + 1) / 2);
-        Index += TotalParameterCount * 2 // type and parameter names
-                 - MethodCount -
-                 CountMethod(CDef->Constructors); // return parameter don't have names
-    }
-    */
 
     if (CDef)
         OS << "    " << llvm::format_decimal(CDef->Properties.size(), FieldWidth) << ", "
@@ -530,12 +620,6 @@ void Generator::GenerateCode()
        << llvm::format_decimal(I(ConstructorCount * 5), FieldWidth) << ", // constructors\n";
 
     int flags = 0;
-    if (CDef && CDef->HasQGadget) {
-        // Ideally, all the classes could have that flag. But this broke classes
-        // generated by qdbusxml2cpp which generate code that require that we
-        // call qt_metacall for properties
-        flags |= PropertyAccessInStaticMetaCall;
-    }
     OS << "    " << llvm::format_decimal(flags, FieldWidth) << ",       // flags\n";
 
     OS << "    " << llvm::format_decimal((CDef ? CountMethod(CDef->Signals) : 0), FieldWidth)
@@ -543,9 +627,23 @@ void Generator::GenerateCode()
 
     if (Def->ClassInfo.size()) {
         OS << "\n // classinfo: key, value\n";
-        for (const auto& I : Def->ClassInfo)
-            OS << "    " << llvm::format_decimal(StrIdx(I.first), FieldWidth) << ", "
-               << llvm::format_decimal(StrIdx(I.second), FieldWidth) << ",\n";
+        for (const auto& I : Def->ClassInfo) {
+            // To get full text compatibility with moc no x86_64, first register
+            // the value, then the key. moc registers classinfo key/value pairs
+            // as follows:
+            //
+            //    fprintf(out, "    %4d, %4d,\n", strreg(c.name), strreg(c.value));
+            //
+            // Due to calling conventions; the value is registered before the
+            // key on my platform. It does not really matter, but makes testing
+            // initial moc compatability easier.
+            // TODO(ton): Consider removing this once Qt4 support is more
+            // stable.
+            const int valueIdx{StrIdx(I.second)};
+            const int keyIdx{StrIdx(I.first)};
+            OS << "    " << llvm::format_decimal(keyIdx, FieldWidth) << ", "
+               << llvm::format_decimal(valueIdx, FieldWidth) << ",\n";
+        }
     }
 
     if (CDef) {
@@ -592,8 +690,6 @@ void Generator::GenerateCode()
             OS << "\n";
         }
 
-        // GenerateFunctionParameters(CDef->Signals, "signals");
-        // GenerateFunctionParameters(CDef->Slots, "slots");
         for (const PrivateSlotDef& P : CDef->PrivateSlots) {
             for (int Clone = 0; Clone <= P.NumDefault; ++Clone) {
                 int argc = (P.Args.size() - Clone);
@@ -616,8 +712,6 @@ void Generator::GenerateCode()
                 OS << ",\n";
             }
         }
-        // GenerateFunctionParameters(CDef->Methods, "methods");
-        // GenerateFunctionParameters(CDef->Constructors, "constructors");
 
         GenerateProperties();
     }
@@ -628,9 +722,7 @@ void Generator::GenerateCode()
         GenerateFunctions(CDef->Constructors, "constructors", MethodConstructor, ParamsIndex);
     }
 
-    OS << "\n0    // eod\n};\n";
-
-    // StringArray;
+    OS << "\n       0        // eod\n};\n\n";
 
     int TotalLen = 1;
     for (const auto& S : Strings)
@@ -639,82 +731,42 @@ void Generator::GenerateCode()
     OS_TemplateHeader << "static const char qt_meta_stringdata_" << QualifiedClassNameIdentifier
                       << "[] = {\n    \"";
 
-    // if (HasTemplateHeader) {
-    //     OS_TemplateHeader << "extern const qt_meta_stringdata_" << QualifiedClassNameIdentifier
-    //                       << "_t qt_meta_stringdata_" << QualifiedClassNameIdentifier << ";\n";
-    // }
-    /*
-    OS << "#define QT_MOC_LITERAL(idx, ofs, len) \\\n"
-          "    Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER_WITH_OFFSET(len, "
-          "\\\n"
-          "    qptrdiff(offsetof(qt_meta_stringdata_"
-       << QualifiedClassNameIdentifier
-       << "_t, stringdata) + ofs \\\n"
-          "        - idx * sizeof(QByteArrayData)) \\\n"
-          "    )\n"
-       << Static << "const qt_meta_stringdata_" << QualifiedClassNameIdentifier
-       << "_t qt_meta_stringdata_" << QualifiedClassNameIdentifier
-       << " = {\n"
-          "    {\n";
-    int Idx = 0;
-    int LitteralIndex = 0;
-    for (const auto& S : Strings) {
-        if (LitteralIndex)
-            OS << ",\n";
-        OS << "QT_MOC_LITERAL(" << (LitteralIndex++) << ", " << Idx << ", " << S.size() << ")";
-        Idx += S.size() + 1;
-    }
-    OS << "\n    },\n    \"";
-    */
-    int Col = 0;
-    for (const auto& S : Strings) {
-        if (Col && Col + S.size() >= 72) {
+    int col = 0;
+    for (int i = 0; i < Strings.size(); ++i) {
+        const std::string& s = Strings[i];
+        const int slen = s.length();
+        int len = s.length();
+        if (col && col + len >= 72) {
             OS << "\"\n    \"";
-            Col = 0;
-        } else if (S.size() && ((S[0] >= '0' && S[0] <= '9') || S[0] == '?')) {
+            col = 0;
+        } else if (len && s[0] >= '0' && s[0] <= '9') {
             OS << "\"\"";
-            Col += 2;
+            len += 2;
         }
-
-        // Can't use write_escaped because of the trigraph
-        for (unsigned i = 0, e = S.size(); i != e; ++i) {
-            unsigned char c = S[i];
-            switch (c) {
-            case '\\':
-                OS << '\\' << '\\';
-                break;
-            case '\t':
-                OS << '\\' << 't';
-                break;
-            case '\n':
-                OS << '\\' << 'n';
-                break;
-            case '"':
-                OS << '\\' << '"';
-                break;
-            case '?':
-                if (i != 0 && S[i - 1] == '?') {
-                    OS << '\\';
-                    Col++;
-                }
-                OS << '?';
-                break;
-            default:
-                if (std::isprint(c)) {
-                    OS << c;
-                    break;
-                }
-                // Use 3 character octal sequence
-                OS << '\\' << char('0' + ((c >> 6) & 7)) << char('0' + ((c >> 3) & 7))
-                   << char('0' + ((c >> 0) & 7));
-                Col += 3;
+        int idx = 0;
+        while (idx < s.length()) {
+            if (idx > 0) {
+                col = 0;
+                OS << "\"\n    \"";
             }
+            int spanLen = std::min(70, slen - idx);
+            // don't cut escape sequences at the end of a line
+            int backSlashPos = int(s.rfind('\\', idx + spanLen - 1));
+            if (backSlashPos >= idx) {
+                int escapeLen = lengthOfEscapeSequence(s, backSlashPos);
+                spanLen = std::max(spanLen, std::min(backSlashPos + escapeLen - idx, slen - idx));
+            }
+            OS << s.substr(idx, spanLen);
+            idx += spanLen;
+            col += spanLen;
         }
 
         OS << "\\0";
-        Col += 2 + S.size();
+        col += len + 2;
     }
-    OS << "\"\n};\n\n";
+    OS << "\"\n};\n";
+
+    GenerateStaticMetaCall();
 
     if (!Def->Extra.empty()) {
         if (HasTemplateHeader)
@@ -740,7 +792,8 @@ void Generator::GenerateCode()
                                       !CDef->Properties.empty() || !CDef->Constructors.empty());
 
     if (HasStaticMetaCall) {
-        OS_TemplateHeader << "const QMetaObjectExtraData X::staticMetaObjectExtraData = {\n"
+        OS_TemplateHeader << "const QMetaObjectExtraData " << QualName
+                          << "::staticMetaObjectExtraData = {\n"
                              "    0,  qt_static_metacall \n"
                              "};\n";
     }
@@ -759,30 +812,20 @@ void Generator::GenerateCode()
                          "      qt_meta_data_"
                       << QualifiedClassNameIdentifier << ", ";
 
-    /*
-    bool HasStaticMetaCall = CDef && (CDef->HasQObject || !CDef->Methods.empty() ||
-                                      !CDef->Properties.empty() || !CDef->Constructors.empty());
-                                      */
     if (HasStaticMetaCall)
         OS_TemplateHeader << "&staticMetaObjectExtraData ";
     else
         OS_TemplateHeader << "0, ";
 
-    /*
-    if (!Def->Extra.empty())
-        OS_TemplateHeader << "qt_meta_extradata_" << QualifiedClassNameIdentifier << ", ";
-    else
-        OS_TemplateHeader << "0, ";
-    OS_TemplateHeader << "0}\n};\n";
-    */
     OS_TemplateHeader << "}\n};\n";
 
     // TODO(ton): HasStaticMetaCall needed here?
     if (HasStaticMetaCall)
-        OS_TemplateHeader
-            << "\n#ifdef Q_NO_DATA_RELOCATION\n"
-               "const QMetaObject &X::getStaticMetaObject() { return staticMetaObject; }\n"
-               "#endif //Q_NO_DATA_RELOCATION\n\n";
+        OS_TemplateHeader << "\n#ifdef Q_NO_DATA_RELOCATION\n"
+                             "const QMetaObject &"
+                          << QualName
+                          << "::getStaticMetaObject() { return staticMetaObject; }\n"
+                             "#endif //Q_NO_DATA_RELOCATION\n\n";
 
     if (CDef && CDef->HasQObject) {
         OS_TemplateHeader << TemplatePrefix << "const QMetaObject *" << QualName
@@ -829,7 +872,6 @@ void Generator::GenerateCode()
                                  "}\n";
 
         GenerateMetaCall();
-        GenerateStaticMetaCall();
 
         int SigIdx = 0;
         for (const clang::CXXMethodDecl* MD : CDef->Signals) {
@@ -879,6 +921,9 @@ void Generator::GenerateMetaCall()
     }
 
     if (CDef->Properties.size()) {
+        bool needGet = false;
+        bool needSet = false;
+        bool needReset = false;
         bool needDesignable = false;
         bool needScriptable = false;
         bool needStored = false;
@@ -888,6 +933,9 @@ void Generator::GenerateMetaCall()
             auto IsFunction = [](const std::string& S) {
                 return S.size() && S[S.size() - 1] == ')';
             };
+            needGet |= !p.read.empty() || !p.member.empty();
+            needSet |= !p.write.empty() || (!p.member.empty() && !p.constant);
+            needReset |= !p.reset.empty();
             needDesignable |= IsFunction(p.designable);
             needScriptable |= IsFunction(p.scriptable);
             needStored |= IsFunction(p.stored);
@@ -897,22 +945,103 @@ void Generator::GenerateMetaCall()
 
         OS_TemplateHeader << "#ifndef QT_NO_PROPERTIES\n";
 
-        OS_TemplateHeader << "    ";
+        OS_TemplateHeader << "      ";
         if (MethodCount)
             OS_TemplateHeader << "else ";
 
-        OS_TemplateHeader << " if (_c == QMetaObject::ReadProperty || _c == "
-                             "QMetaObject::WriteProperty\n"
-                             "            || _c == QMetaObject::ResetProperty || _c == "
-                             "QMetaObject::RegisterPropertyMetaType) {\n"
-                             "        if (_id < "
-                          << CDef->Properties.size()
-                          << ")\n"
-                             "            qt_static_metacall(this, _c, _id, _a);\n"
-                             "        _id -= "
-                          << CDef->Properties.size()
-                          << ";\n"
-                             "    }\n";
+        // Generate the code for QMetaObject::'Action'.  calls 'Functor' to
+        // generate the  code for each properties
+        auto HandlePropertyAction = [&](bool Need, bool NeedQObject, const char* Action,
+                                        const std::function<void(const PropertyDef&)>& Functor) {
+            OS_TemplateHeader << "if (_c == QMetaObject::" << Action << ") {\n";
+            if (Need) {
+                if (NeedQObject && CDef->HasQObject) {
+                    OS_TemplateHeader << "        void *_v = _a[0];\n";
+                }
+
+                OS_TemplateHeader << "        switch (_id) {\n";
+                int I = 0;
+                for (const PropertyDef& p : CDef->Properties) {
+                    OS_TemplateHeader << "        case " << (I++) << ": ";
+                    Functor(p);
+                    OS_TemplateHeader << "break;\n";
+                }
+                OS_TemplateHeader << "        }\n";
+            }
+            OS_TemplateHeader << "        _id -= " << CDef->Properties.size() << ";\n    }";
+        };
+
+        HandlePropertyAction(needGet, true, "ReadProperty", [&](const PropertyDef& p) {
+            if (p.read.empty() && p.member.empty())
+                return;
+
+            std::string Prefix; // = "_t->";
+            if (p.inPrivateClass.size()) {
+                Prefix += p.inPrivateClass;
+                Prefix += "->";
+            }
+
+            // FIXME: enums case
+            if (p.PointerHack) {
+                OS_TemplateHeader << "_a[0] = const_cast<void*>(static_cast<const void*>(" << Prefix
+                                  << p.read << "())); ";
+            } else {
+                OS_TemplateHeader << "*reinterpret_cast< " << p.type << "*>(_v) = " << Prefix;
+                if (!p.read.empty())
+                    OS_TemplateHeader << p.read << "(); ";
+                else
+                    OS_TemplateHeader << p.member << "; ";
+            }
+        });
+
+        OS_TemplateHeader << " else ";
+        HandlePropertyAction(needSet, true, "WriteProperty", [&](const PropertyDef& p) {
+            if (p.constant)
+                return;
+
+            std::string Prefix; // = "_t->";
+            if (p.inPrivateClass.size()) {
+                Prefix += p.inPrivateClass;
+                Prefix += "->";
+            }
+
+            if (!p.write.empty()) {
+                OS_TemplateHeader << Prefix << p.write << "(*reinterpret_cast< " << p.type
+                                  << "*>(_v)); ";
+            } else if (!p.member.empty()) {
+                std::string M = Prefix + p.member;
+                std::string A = "*reinterpret_cast< " + p.type + "*>(_a[0])";
+                if (!p.notify.Str.empty()) {
+                    OS_TemplateHeader << "\n"
+                                         "            if ("
+                                      << M << " != " << A
+                                      << ") {\n"
+                                         "                "
+                                      << M << " = " << A
+                                      << ";\n"
+                                         "                Q_EMIT _t->"
+                                      << p.notify.Str << "(";
+                    if (p.notify.MD && p.notify.MD->getMinRequiredArguments() > 0)
+                        OS_TemplateHeader << M;
+                    OS_TemplateHeader << ");\n"
+                                         "            } ";
+                } else {
+                    OS_TemplateHeader << M << " = " << A << "; ";
+                }
+            }
+        });
+
+        OS_TemplateHeader << " else ";
+        HandlePropertyAction(needReset, false, "ResetProperty", [&](const PropertyDef& p) {
+            if (p.reset.empty() || p.reset[p.reset.size() - 1] != ')')
+                return;
+            std::string Prefix; // = "_t->";
+            if (p.inPrivateClass.size()) {
+                Prefix += p.inPrivateClass;
+                Prefix += "->";
+            }
+            OS_TemplateHeader << Prefix << p.reset << "; ";
+        });
 
         // Helper for all the QMetaObject::QueryProperty*
         typedef std::string(PropertyDef::*Accessor);
@@ -998,8 +1127,7 @@ void Generator::GenerateStaticMetaCall()
         NeedElse = true;
         OS_TemplateHeader << "if (_c == QMetaObject::InvokeMetaMethod) {\n";
         if (CDef->HasQObject) {
-            //          OS_TemplateHeader << "
-            //          Q_ASSERT(staticMetaObject.cast(_o));\n";
+            OS_TemplateHeader << "        Q_ASSERT(staticMetaObject.cast(_o));\n";
             OS_TemplateHeader << "        " << ClassName << " *_t = static_cast<" << ClassName
                               << " *>(_o);\n";
         } else {
@@ -1007,7 +1135,7 @@ void Generator::GenerateStaticMetaCall()
                               << " *>(_o);\n";
         }
 
-        OS_TemplateHeader << "        switch(_id) {\n";
+        OS_TemplateHeader << "        switch (_id) {\n";
         int MethodIndex = 0;
         auto GenerateInvokeMethod = [&](const clang::CXXMethodDecl* MD, int Clone) {
             if (!MD->getIdentifier())
@@ -1042,14 +1170,17 @@ void Generator::GenerateStaticMetaCall()
                     OS_TemplateHeader << ",";
                 if (j == MD->getNumParams() - 1 && HasPrivateSignal(MD))
                     OS_TemplateHeader << "QPrivateSignal()";
-                else
-                    OS_TemplateHeader << "*reinterpret_cast< "
-                                      << Ctx.getPointerType(MD->getParamDecl(j)
-                                                                ->getType()
-                                                                .getNonReferenceType()
-                                                                .getUnqualifiedType())
-                                             .getAsString(PrintPolicy)
-                                      << " >(_a[" << (j + 1) << "])";
+                else {
+                    std::string pointerType{
+                        Ctx.getPointerType(MD->getParamDecl(j)->getType().getNonReferenceType())
+                            .getAsString(PrintPolicy)};
+                    // Match moc output; parenthesize the pointer.
+                    if (pointerType.size() > 1) {
+                        pointerType[pointerType.size() - 2] = '(';
+                    }
+                    OS_TemplateHeader << "(*reinterpret_cast< " << pointerType << ")>(_a["
+                                      << (j + 1) << "]))";
+                }
             }
             OS_TemplateHeader << ");";
             if (!IsVoid) {
@@ -1090,227 +1221,14 @@ void Generator::GenerateStaticMetaCall()
                 MethodIndex++;
             }
         }
+
         ForEachMethod(CDef->Methods, GenerateInvokeMethod);
-        OS_TemplateHeader << "        default: break;\n"
-                             "        }\n"
-                             "    } else if (_c == "
-                             "QMetaObject::RegisterMethodArgumentMetaType) {\n"
-                             "        switch ((_id << 16) | *reinterpret_cast<int*>(_a[1])) "
-                             "{\n"
-                             "        default: *reinterpret_cast<int*>(_a[0]) = -1; break;\n";
 
-        MethodIndex = 0;
-        auto GenerateRegisterMethodArguments = [&](const clang::CXXMethodDecl* MD, int Clone) {
-            if (!MD->getIdentifier()) {
-                MethodIndex++;
-                return;
-            }
-            //  RegisterT(getResultType(MD), (MethodIndex << 16));
-            int argc = MD->getNumParams() - Clone - (HasPrivateSignal(MD) ? 1 : 0);
-            for (int j = 0; j < argc; ++j) {
-                auto Type = MD->getParamDecl(j)->getType();
-                if (!Moc->ShouldRegisterMetaType(Type))
-                    break;
-                OS_TemplateHeader << "       case 0x";
-                OS_TemplateHeader.write_hex((MethodIndex << 16) | j);
-                OS_TemplateHeader << ": *reinterpret_cast<int*>(_a[0]) = ";
-                OS_TemplateHeader << "QtPrivate::QMetaTypeIdHelper< "
-                                  << Type.getNonReferenceType().getUnqualifiedType().getAsString(
-                                         PrintPolicy)
-                                  << " >::qt_metatype_id(); break;\n";
-            }
-            MethodIndex++;
-        };
-
-        ForEachMethod(CDef->Signals, GenerateRegisterMethodArguments);
-        ForEachMethod(CDef->Slots, GenerateRegisterMethodArguments);
-        MethodIndex += CDef->PrivateSlotCount; // TODO: we should also register
-                                               // these types.
-        ForEachMethod(CDef->Methods, GenerateRegisterMethodArguments);
-
-        OS_TemplateHeader << "        }\n    }";
-    }
-    if (!CDef->Signals.empty()) {
-        int MethodIndex = 0;
-        OS_TemplateHeader << " else if (_c == QMetaObject::IndexOfMethod) {\n"
-                             "        int *result = reinterpret_cast<int *>(_a[0]);\n"
-                             "        void **func = reinterpret_cast<void **>(_a[1]);\n";
-
-        for (const clang::CXXMethodDecl* MD : CDef->Signals) {
-            int Idx = MethodIndex;
-            MethodIndex += MD->getNumParams() - MD->getMinRequiredArguments() + 1;
-            if (MD->isStatic() || !MD->getIdentifier())
-                continue;
-            OS_TemplateHeader << "        {\n"
-                                 "            typedef "
-                              << getResultType(MD).getAsString(PrintPolicy) << " (" << ClassName
-                              << "::*_t)(";
-            for (uint j = 0; j < MD->getNumParams(); ++j) {
-                if (j)
-                    OS_TemplateHeader << ",";
-                OS_TemplateHeader << MD->getParamDecl(j)->getType().getAsString(PrintPolicy);
-            }
-            if (MD->isConst())
-                OS_TemplateHeader << ") const;\n";
-            else
-                OS_TemplateHeader << ");\n";
-
-            OS_TemplateHeader << "            if (*reinterpret_cast<_t "
-                                 "*>(func) == static_cast<_t>(&"
-                              << ClassName << "::" << MD->getName()
-                              << ")) {\n"
-                                 "                *result = "
-                              << Idx
-                              << ";\n"
-                                 "            }\n"
-                                 "        }\n";
-        }
-        OS_TemplateHeader << "    }";
+        OS_TemplateHeader << "        default: ;\n"
+                             "        }\n    }\n";
     }
 
-    if (!CDef->Properties.empty()) {
-        if (NeedElse)
-            OS_TemplateHeader << " else ";
-        NeedElse = true;
-
-        bool needGet = false;
-        // bool needTempVarForGet = false;
-        bool needSet = false;
-        bool needReset = false;
-        for (const PropertyDef& p : CDef->Properties) {
-            needGet |= !p.read.empty() || !p.member.empty();
-            /*if (!p.read.empty())
-                needTempVarForGet |= (p.gspec != PropertyDef::PointerSpec
-                && p.gspec != PropertyDef::ReferenceSpec);*/
-            needSet |= !p.write.empty() || (!p.member.empty() && !p.constant);
-            needReset |= !p.reset.empty();
-        }
-
-        // Generate the code for QMetaObject::'Action'.  calls 'Functor' to
-        // generate the  code for each properties
-        auto HandlePropertyAction = [&](bool Need, const char* Action,
-                                        const std::function<void(const PropertyDef&)>& Functor) {
-            OS_TemplateHeader << "if (_c == QMetaObject::" << Action << ") {\n";
-            if (Need) {
-                if (CDef->HasQObject) {
-                    // OS_TemplateHeader << "
-                    // Q_ASSERT(staticMetaObject.cast(_o));\n";
-                    OS_TemplateHeader << "        " << ClassName << " *_t = static_cast<"
-                                      << ClassName << " *>(_o);\n";
-                } else {
-                    OS_TemplateHeader << "        " << ClassName << " *_t = reinterpret_cast<"
-                                      << ClassName << " *>(_o);\n";
-                }
-                OS_TemplateHeader << "        switch (_id) {\n";
-                int I = 0;
-                for (const PropertyDef& p : CDef->Properties) {
-                    OS_TemplateHeader << "        case " << (I++) << ": ";
-                    Functor(p);
-                    OS_TemplateHeader << "break;\n";
-                }
-                OS_TemplateHeader << "        default: break;\n";
-                OS_TemplateHeader << "        }";
-            }
-            OS_TemplateHeader << "        _id -= " << CDef->Properties.size() << ";\n    }";
-        };
-
-        HandlePropertyAction(needGet, "ReadProperty", [&](const PropertyDef& p) {
-            if (p.read.empty() && p.member.empty())
-                return;
-
-            std::string Prefix = "_t->";
-            if (p.inPrivateClass.size()) {
-                Prefix += p.inPrivateClass;
-                Prefix += "->";
-            }
-
-            // FIXME: enums case
-            if (p.PointerHack) {
-                OS_TemplateHeader << "_a[0] = const_cast<void*>(static_cast<const void*>(" << Prefix
-                                  << p.read << "())); ";
-            } else {
-                OS_TemplateHeader << "*reinterpret_cast< " << p.type << "*>(_a[0]) = " << Prefix;
-                if (!p.read.empty())
-                    OS_TemplateHeader << p.read << "(); ";
-                else
-                    OS_TemplateHeader << p.member << "; ";
-            }
-        });
-        OS_TemplateHeader << " else ";
-        HandlePropertyAction(needSet, "WriteProperty", [&](const PropertyDef& p) {
-            if (p.constant)
-                return;
-
-            std::string Prefix = "_t->";
-            if (p.inPrivateClass.size()) {
-                Prefix += p.inPrivateClass;
-                Prefix += "->";
-            }
-
-            if (!p.write.empty()) {
-                OS_TemplateHeader << Prefix << p.write << "(*reinterpret_cast< " << p.type
-                                  << "*>(_a[0])); ";
-            } else if (!p.member.empty()) {
-                std::string M = Prefix + p.member;
-                std::string A = "*reinterpret_cast< " + p.type + "*>(_a[0])";
-                if (!p.notify.Str.empty()) {
-                    OS_TemplateHeader << "\n"
-                                         "            if ("
-                                      << M << " != " << A
-                                      << ") {\n"
-                                         "                "
-                                      << M << " = " << A
-                                      << ";\n"
-                                         "                Q_EMIT _t->"
-                                      << p.notify.Str << "(";
-                    if (p.notify.MD && p.notify.MD->getMinRequiredArguments() > 0)
-                        OS_TemplateHeader << M;
-                    OS_TemplateHeader << ");\n"
-                                         "            } ";
-                } else {
-                    OS_TemplateHeader << M << " = " << A << "; ";
-                }
-            }
-        });
-        OS_TemplateHeader << " else ";
-        HandlePropertyAction(needReset, "ResetProperty", [&](const PropertyDef& p) {
-            if (p.reset.empty() || p.reset[p.reset.size() - 1] != ')')
-                return;
-            std::string Prefix = "_t->";
-            if (p.inPrivateClass.size()) {
-                Prefix += p.inPrivateClass;
-                Prefix += "->";
-            }
-            OS_TemplateHeader << Prefix << p.reset << "; ";
-        });
-
-        OS_TemplateHeader << "if (_c == QMetaObject::RegisterPropertyMetaType) {\n"
-                             "        switch (_id) {\n"
-                             "        default: *reinterpret_cast<int*>(_a[0]) = -1; break;\n";
-
-        // FIXME: optimize (group same properties, and don't generate for
-        // builtin
-        int Idx = 0;
-        for (const PropertyDef& P : CDef->Properties) {
-            int OldIdx = Idx++;
-            if (P.PossiblyForwardDeclared) {
-                const auto& MTS = Moc->registered_meta_type;
-                if (!std::any_of(MTS.begin(), MTS.end(), [&](const clang::Type* T) {
-                        return clang::QualType(T, 0).getAsString(PrintPolicy) == P.type;
-                    }))
-                    continue;
-            }
-            OS_TemplateHeader << "        case " << OldIdx
-                              << ": *reinterpret_cast<int*>(_a[0]) = "
-                                 "QtPrivate::QMetaTypeIdHelper<"
-                              << P.type << " >::qt_metatype_id(); break;\n";
-        }
-        OS_TemplateHeader << "        }\n";
-        OS_TemplateHeader << "    }\n";
-    }
-
-    OS_TemplateHeader << "\n    Q_UNUSED(_o); Q_UNUSED(_id); Q_UNUSED(_c); Q_UNUSED(_a);";
-    OS_TemplateHeader << "\n}\n";
+    OS_TemplateHeader << "}\n\n";
 }
 
 void Generator::GenerateSignal(const clang::CXXMethodDecl* MD, int Idx)
@@ -1395,8 +1313,13 @@ void Generator::GenerateProperties()
 
     for (const PropertyDef& p : CDef->Properties) {
         unsigned int flags = Invalid;
-        if (p.isEnum)
+        if (p.isEnum) {
             flags |= EnumOrFlag;
+        }
+        // TODO(ton): type flag not properly supported for now.
+        // else if (!isQRealType(p.type.c_str())) {
+        //     flags |= qvariant_nameToType(p.type.c_str()) << 24;
+        // }
         if (!p.member.empty() && !p.constant)
             flags |= Writable;
         if (!p.read.empty() || !p.member.empty())
@@ -1439,7 +1362,12 @@ void Generator::GenerateProperties()
             flags |= Constant;
         if (p.final)
             flags |= Final;
-        OS << "    " << StrIdx(p.name) << ", 0x80000000 | " << StrIdx(p.type) << ", 0x";
+
+        const int typeIdx{StrIdx(p.type)};
+        const int nameIdx{StrIdx(p.name)};
+
+        OS << "    " << llvm::format_decimal(nameIdx, FieldWidth) << ", "
+           << llvm::format_decimal(typeIdx, FieldWidth) << ", 0x";
         OS.write_hex(flags) << ",\n";
     }
 
@@ -1482,8 +1410,10 @@ void Generator::GenerateEnums(int EnumIndex)
             flags |= 0x1; // EnumIsFlag
         if (std::get<0>(e)->isScoped())
             flags |= 0x2; // EnumIsScoped
-        OS << "    " << StrIdx(std::get<1>(e)) << ", " << flags << ", " << Count << ", "
-           << EnumIndex << ",\n";
+        OS << "    " << llvm::format_decimal(StrIdx(std::get<1>(e)), FieldWidth) << ", 0x";
+        llvm::write_hex(OS, flags, HexPrintStyle, 1);
+        OS << ", " << llvm::format_decimal(Count, FieldWidth) << ", "
+           << llvm::format_decimal(EnumIndex, FieldWidth) << ",\n";
         EnumIndex += Count * 2;
     }
 
@@ -1492,7 +1422,8 @@ void Generator::GenerateEnums(int EnumIndex)
         for (auto it = std::get<0>(e)->enumerator_begin(); it != std::get<0>(e)->enumerator_end();
              ++it) {
             clang::EnumConstantDecl* E = *it;
-            OS << "    " << StrIdx(E->getName()) << ", uint(" << QualName << "::";
+            OS << "    " << llvm::format_decimal(StrIdx(E->getName()), FieldWidth) << ", uint("
+               << QualName << "::";
             if (std::get<0>(e)->isScoped())
                 OS << std::get<0>(e)->getName() << "::";
             OS << E->getName() << "),\n";
@@ -1504,37 +1435,24 @@ void Generator::GenerateEnums(int EnumIndex)
 // Register the string if it is not yet registered.
 int Generator::StrIdx(llvm::StringRef Str)
 {
+    int idx{0};
     std::string S = Str;
-    auto It = std::find(Strings.begin(), Strings.end(), S);
-    if (It != Strings.end())
-        return It - Strings.begin();
-    Strings.push_back(std::move(S));
-    return Strings.size() - 1;
-}
-
-/*
-int Generator::strreg(const char *s)
-{
-  int idx = 0;
-  if (!s)
-    s = "";
-  for (int i = 0; i < strings.size(); ++i) {
-    const QByteArray &str = strings.at(i);
-    if (str == s)
-      return idx;
-    idx += str.length() + 1;
-    for (int i = 0; i < str.length(); ++i) {
-      if (str.at(i) == '\\') {
-        int cnt = lengthOfEscapeSequence(str, i) - 1;
-        idx -= cnt;
-        i += cnt;
-      }
+    for (int i = 0; i < Strings.size(); ++i) {
+        const std::string& str = Strings.at(i);
+        if (str == S)
+            return idx;
+        idx += str.length() + 1;
+        for (int i = 0; i < str.length(); ++i) {
+            if (str.at(i) == '\\') {
+                int cnt = lengthOfEscapeSequence(str, i) - 1;
+                idx -= cnt;
+                i += cnt;
+            }
+        }
     }
-  }
-  strings.append(s);
-  return idx;
+    Strings.push_back(std::move(S));
+    return idx;
 }
-*/
 
 void Generator::GeneratePluginMetaData(bool Debug)
 {

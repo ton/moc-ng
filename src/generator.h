@@ -30,6 +30,7 @@ namespace clang {
 } // namespace clang
 
 #include <clang/AST/PrettyPrinter.h>
+#include <llvm/Support/NativeFormatting.h>
 
 #include "mocng.h"
 
@@ -84,7 +85,7 @@ enum MetaDataFlags { IsUnresolvedType = 0x80000000, TypeNameIndexMask = 0x7FFFFF
 enum {
     OutputRevision = 6,
     MetaObjectPrivateFieldCount = 14, //  = sizeof(QMetaObjectPrivate) / sizeof(int)
-    mocOutputRevision = 67,
+    mocOutputRevision = 63,
     QT_VERSION = 0x050100
 };
 
@@ -108,6 +109,7 @@ class Generator {
 
     clang::ASTContext& Ctx;
     clang::PrintingPolicy PrintPolicy;
+    llvm::HexPrintStyle HexPrintStyle;
 
     MocNg* Moc;
 

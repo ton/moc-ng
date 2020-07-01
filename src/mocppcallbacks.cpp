@@ -32,7 +32,7 @@ void MocPPCallbacks::InjectQObjectDefs(clang::SourceLocation Loc)
 void MocPPCallbacks::EnterMainFile(llvm::StringRef Name)
 {
     if (Name.endswith("global/qnamespace.h")) {
-        // qnamsepace.h is a bit special because it contains all the Qt
+        // qnamespace.h is a bit special because it contains all the Qt
         // namespace enums but all the Q_ENUMS are within a Q_MOC_RUN scope,
         // which also do all sort of things.
 
@@ -65,7 +65,7 @@ void MocPPCallbacks::FileChanged(clang::SourceLocation Loc,
         return;
 
     llvm::StringRef name = F->getName();
-    if (name.endswith("qobjectdefs.h")) {
+    if (name.endswith("qobject.h")) {
         InjectQObjectDefs(Loc);
     }
 }

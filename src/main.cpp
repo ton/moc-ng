@@ -177,6 +177,7 @@ struct MocNGASTConsumer : public MocASTConsumer {
                    "**\n"
                    "** Created by MOC-NG version " MOCNG_VERSION_STR
                    " by Woboq [https://woboq.com]\n"
+                   "**\n"
                    "** WARNING! All changes made in this file will be lost!\n"
                    "***********************************************************"
                    "******************/\n\n";
@@ -210,6 +211,7 @@ struct MocNGASTConsumer : public MocASTConsumer {
                "MOC-NG " MOCNG_VERSION_STR ".\"\n"
                "#error \"It cannot be used with the include files from this "
                "version of Qt.\"\n"
+               "#error \"(The moc has changed too much.)\"\n"
                "#endif\n\n"
                "QT_BEGIN_MOC_NAMESPACE\n";
 
