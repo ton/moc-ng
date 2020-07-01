@@ -202,6 +202,10 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
         std::string tag = Moc->GetTag(M->getSourceRange().getBegin(), Ctx.getSourceManager());
         int tagIdx{StrIdx(tag)};
 
+        const clang::QualType ReturnType = getResultType(M);
+        const int ReturnTypeIdx{
+            ReturnType->isVoidType() ? StrIdx("") : StrIdx(ReturnType.getAsString(PrintPolicy))};
+
         std::vector<Parameter> parameters;
         for (const clang::ParmVarDecl* pvd : M->parameters()) {
             Parameter parameter;
@@ -262,10 +266,9 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
         int SignatureIdx{StrIdx(expandedSignatures[OverloadIdx])};
         int ParamIdx{StrIdx(expandedParameterNames[OverloadIdx])};
 
-        // TODO(ton): third parameter should be a type; not supported in Qt4?
         OS << "    " << llvm::format_decimal(SignatureIdx, FieldWidth) << ", "
            << llvm::format_decimal(ParamIdx, FieldWidth) << ", "
-           << llvm::format_decimal(tagIdx, FieldWidth) << ", "
+           << llvm::format_decimal(ReturnTypeIdx, FieldWidth) << ", "
            << llvm::format_decimal(tagIdx, FieldWidth) << ", 0x";
         llvm::write_hex(OS, Flags, HexPrintStyle, 2);
         OS << ",\n";
