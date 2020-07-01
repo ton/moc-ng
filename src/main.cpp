@@ -482,8 +482,10 @@ int main(int argc, const char** argv)
     Argv.push_back("-Wno-pragma-once-outside-header");
 #if CLANG_VERSION_MAJOR == 3 && CLANG_VERSION_MINOR <= 5
     Argv.push_back("-std=c++11");
-#else
+#elif CLANG_VERSION_MAJOR < 5
     Argv.push_back("-std=c++14");
+#else
+    Argv.push_back("-std=c++17");
 #endif
 
     bool HasInput = false;
