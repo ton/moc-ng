@@ -1085,6 +1085,7 @@ void Generator::GenerateStaticMetaCall()
                       << "::qt_static_metacall(QObject *_o, QMetaObject::Call "
                          "_c, int _id, void **_a)\n{\n    ";
     bool NeedElse = false;
+    bool IsUsed_a = false;
 
     if (!CDef->Constructors.empty()) {
         OS_TemplateHeader << "    if (_c == QMetaObject::CreateInstance) {\n"
@@ -1119,6 +1120,7 @@ void Generator::GenerateStaticMetaCall()
                              "    }";
 
         NeedElse = true;
+        IsUsed_a = true;
     }
 
     if (MethodCount) {
@@ -1180,6 +1182,7 @@ void Generator::GenerateStaticMetaCall()
                     }
                     OS_TemplateHeader << "(*reinterpret_cast< " << pointerType << ")>(_a["
                                       << (j + 1) << "]))";
+                    IsUsed_a = true;
                 }
             }
             OS_TemplateHeader << ");";
@@ -1191,6 +1194,7 @@ void Generator::GenerateStaticMetaCall()
                     Ctx.getPointerType(ReturnType.getNonReferenceType().getUnqualifiedType())
                         .print(OS, PrintPolicy);
                 OS_TemplateHeader << " >(_a[0]) = qMove(_r); }";
+                IsUsed_a = true;
             }
             OS_TemplateHeader << " break;\n";
         };
@@ -1211,11 +1215,13 @@ void Generator::GenerateStaticMetaCall()
                         OS_TemplateHeader << ",";
                     OS_TemplateHeader << "*reinterpret_cast< " << P.Args[j] << " *>(_a[" << (j + 1)
                                       << "])";
+                    IsUsed_a = true;
                 }
                 OS_TemplateHeader << ");";
                 if (!IsVoid) {
                     OS_TemplateHeader << "\n            if (_a[0]) *reinterpret_cast< "
                                       << P.ReturnType << " *>(_a[0]) = _r; }";
+                    IsUsed_a = true;
                 }
                 OS_TemplateHeader << " break;\n";
                 MethodIndex++;
@@ -1226,6 +1232,10 @@ void Generator::GenerateStaticMetaCall()
 
         OS_TemplateHeader << "        default: ;\n"
                              "        }\n    }\n";
+    }
+
+    if (!IsUsed_a) {
+        OS_TemplateHeader << "    Q_UNUSED(_a);\n";
     }
 
     OS_TemplateHeader << "}\n\n";
