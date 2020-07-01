@@ -340,12 +340,15 @@ static void showHelp()
 }
 
 void parseArgs(int argc, const char** argv, std::vector<std::string>& Argv, bool& PreprocessorOnly,
-               bool& HasInput, llvm::StringRef& InputFile)
+               bool& HasInput, llvm::StringRef& InputFile,
+               std::vector<std::string>& IncludeDirectories)
 {
     bool NextArgNotInput = false;
+    bool NextArgIsInclude = false;
     for (int I = 1; I < argc; ++I) {
         if (argv[I][0] == '-') {
             NextArgNotInput = false;
+            NextArgIsInclude = false;
             switch (argv[I][1]) {
             case 'h':
             case '?':
@@ -387,6 +390,13 @@ void parseArgs(int argc, const char** argv, std::vector<std::string>& Argv, bool
                 PreprocessorOnly = true;
                 break;
             case 'I':
+                if (argv[I][2] == '\0') {
+                    NextArgNotInput = true;
+                    NextArgIsInclude = true;
+                } else {
+                    IncludeDirectories.push_back(std::string(argv[I] + 2));
+                }
+                break;
             case 'U':
             case 'D':
                 NextArgNotInput = (argv[I][2] == '\0');
@@ -454,9 +464,12 @@ void parseArgs(int argc, const char** argv, std::vector<std::string>& Argv, bool
                 argvFromFile[i + 1] = options[i].c_str();
             }
 
-            parseArgs(options.size() + 1, argvFromFile, Argv, PreprocessorOnly, HasInput,
-                      InputFile);
+            parseArgs(options.size() + 1, argvFromFile, Argv, PreprocessorOnly, HasInput, InputFile,
+                      IncludeDirectories);
             continue;
+        } else if (NextArgIsInclude) {
+            IncludeDirectories.push_back(argv[I]);
+            NextArgIsInclude = false;
         } else if (!NextArgNotInput) {
             if (HasInput) {
                 std::cerr << "error: Too many input files specified" << std::endl;
@@ -490,8 +503,9 @@ int main(int argc, const char** argv)
 
     bool HasInput = false;
     llvm::StringRef InputFile;
+    std::vector<std::string> IncludeDirectories;
 
-    parseArgs(argc, argv, Argv, PreprocessorOnly, HasInput, InputFile);
+    parseArgs(argc, argv, Argv, PreprocessorOnly, HasInput, InputFile, IncludeDirectories);
 
     if (Options.Output.empty())
         Options.Output = "-";
@@ -505,6 +519,9 @@ int main(int argc, const char** argv)
     Argv.push_back("-I.uic"); // workaround the fact that the uic generated
                               // code cannot be found
     Argv.push_back("-I/builtins");
+    for (const std::string& Dir : IncludeDirectories) {
+      Argv.push_back("-I" + Dir);
+    }
 
     clang::FileManager FM({"."});
     FM.Retain();
