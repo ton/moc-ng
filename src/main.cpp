@@ -47,6 +47,7 @@ struct MocOptions {
     std::string Output;
     std::string OutputTemplateHeader;
     std::vector<std::pair<llvm::StringRef, llvm::StringRef>> MetaData;
+    bool HeaderCompatibility = false;
     void addOutput(llvm::StringRef);
 } Options;
 
@@ -177,10 +178,14 @@ struct MocNGASTConsumer : public MocASTConsumer {
                    "** Meta object code from reading C++ file '"
                 << InFileBasename
                 << "'\n"
-                   "**\n"
-                   "** Created by MOC-NG version " MOCNG_VERSION_STR
-                   " by Woboq [https://woboq.com]\n"
-                   "**\n"
+                   "**\n";
+            if (Options.HeaderCompatibility)
+                Out << "** Created by: The Qt Meta Object Compiler version 63 (Qt "
+                       "4.8.7)\n";
+            else
+                Out << "** Created by MOC-NG version " MOCNG_VERSION_STR
+                       " by Woboq [https://woboq.com]\n";
+            Out << "**\n"
                    "** WARNING! All changes made in this file will be lost!\n"
                    "***********************************************************"
                    "******************/\n\n";
@@ -207,13 +212,19 @@ struct MocNGASTConsumer : public MocASTConsumer {
             << InFileBasename
             << "' doesn't include <QObject>.\"\n"
                "#elif Q_MOC_OUTPUT_REVISION != "
-            << mocOutputRevision
-            << "\n"
-               "#error \"This file was generated using "
-               "MOC-NG " MOCNG_VERSION_STR ".\"\n"
-               "#error \"It cannot be used with the include files from this "
-               "version of Qt.\"\n"
-               "#error \"(The moc has changed too much.)\"\n"
+            << mocOutputRevision << "\n";
+
+        if (Options.HeaderCompatibility)
+            Out << "#error \"This file was generated using the moc from 4.8.7. It\"\n"
+                   "#error \"cannot be used with the include files from this "
+                   "version of Qt.\"\n";
+        else
+            Out << "#error \"This file was generated using "
+                   "MOC-NG " MOCNG_VERSION_STR ".\"\n"
+                   "#error \"It cannot be used with the include files from this "
+                   "version of Qt.\"\n";
+
+        Out << "#error \"(The moc has changed too much.)\"\n"
                "#endif\n\n"
                "QT_BEGIN_MOC_NAMESPACE\n";
 
@@ -315,6 +326,7 @@ static void showHelp()
                  "  -v                 display version of moc-ng\n"
                  "  -include <file>    Adds an implicit #include into the predefines "
                  "buffer which is read before the source file is preprocessed\n"
+                 "  -c                 force generation of a header similar to Qt4's moc\n"
 
               /* undocumented options
                             "  -W<warnings>       Enable the specified warning\n"
@@ -381,6 +393,9 @@ void parseArgs(int argc, const char** argv, std::vector<std::string>& Argv, bool
                 break;
             case 'X':
                 NextArgNotInput = true;
+                break;
+            case 'c':
+                Options.HeaderCompatibility = true;
                 break;
             case 'f': // this is understood as compiler option rather than
                       // moc -f
