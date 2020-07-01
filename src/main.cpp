@@ -168,11 +168,14 @@ struct MocNGASTConsumer : public MocASTConsumer {
             return;
         llvm::raw_ostream& Out = *OS;
 
+        auto spos = InFile.rfind('/');
+        auto InFileBasename = spos != std::string::npos ? InFile.substr(spos + 1) : InFile;
+
         auto WriteHeader = [&](llvm::raw_ostream& Out) {
             Out << "/**********************************************************"
                    "******************\n"
                    "** Meta object code from reading C++ file '"
-                << InFile
+                << InFileBasename
                 << "'\n"
                    "**\n"
                    "** Created by MOC-NG version " MOCNG_VERSION_STR
@@ -189,7 +192,6 @@ struct MocNGASTConsumer : public MocASTConsumer {
                 Out << s << "\n";
             }
 
-            auto spos = InFile.rfind('/');
             auto ppos = InFile.rfind('.');
             // If it finished by .h, or if there is no dot after a slash,  we
             // should include the source file
@@ -202,7 +204,7 @@ struct MocNGASTConsumer : public MocASTConsumer {
 
         Out << "#if !defined(Q_MOC_OUTPUT_REVISION)\n"
                "#error \"The header file '"
-            << InFile
+            << InFileBasename
             << "' doesn't include <QObject>.\"\n"
                "#elif Q_MOC_OUTPUT_REVISION != "
             << mocOutputRevision
