@@ -109,6 +109,7 @@ class Generator {
 
     clang::ASTContext& Ctx;
     clang::PrintingPolicy PrintPolicy;
+    clang::PrintingPolicy NoScopePrintPolicy;
     llvm::HexPrintStyle HexPrintStyle;
 
     MocNg* Moc;

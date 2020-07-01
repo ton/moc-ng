@@ -103,9 +103,9 @@ static const char Injected[] = R"-(
 #undef QT_TR_FUNCTIONS
 #ifndef QT_NO_TRANSLATION
 #define QT_TR_FUNCTIONS \
-    static inline QString tr(const char *s, const char *c = Q_NULLPTR, int n = -1) \
+    static inline QString tr(const char *s, const char *c = 0, int n = -1) \
     { return staticMetaObject.tr(s, c, n); } \
-    QT_DEPRECATED static inline QString trUtf8(const char *s, const char *c = Q_NULLPTR, int n = -1) \
+    QT_DEPRECATED static inline QString trUtf8(const char *s, const char *c = 0, int n = -1) \
     { return staticMetaObject.tr(s, c, n); } \
     QT_ANNOTATE_CLASS(qt_qobject, "")
 #else
@@ -116,12 +116,9 @@ static const char Injected[] = R"-(
 #undef Q_GADGET
 #define Q_GADGET \
 public: \
-    static const QMetaObject staticMetaObject; \
-    void qt_check_for_QGADGET_macro(); \
-    typedef void QtGadgetHelper; \
-private: \
-    Q_DECL_HIDDEN_STATIC_METACALL static void qt_static_metacall(QObject *, QMetaObject::Call, int, void **); \
-    QT_ANNOTATE_CLASS(qt_qgadget, "")
+  static const QMetaObject staticMetaObject; \
+  Q_OBJECT_GETSTATICMETAOBJECT \
+private:
 
 //for qnamespace.h because Q_MOC_RUN is defined
 #if defined(Q_MOC_RUN)

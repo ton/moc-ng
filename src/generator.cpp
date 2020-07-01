@@ -61,6 +61,23 @@ static int lengthOfEscapeSequence(const std::string& s, int i)
     return i - startPos;
 }
 
+// In case the type string ends with one or more pointer characters '*', it will
+// remove the space in between the type name and the asterisks. 'T *' becomes
+// 'T*', 'U **' becomes 'U**'.
+static std::string attachedPointer(std::string s)
+{
+    auto first = s.rbegin();
+    const auto last = s.rend();
+    while (first != last && *first == '*')
+        ++first;
+
+    if (first != last && *first == ' ') {
+        s.erase(std::prev(first.base()));
+    }
+
+    return s;
+}
+
 // Remove the decltype if possible
 static clang::QualType getDesugarType(const clang::QualType& QT)
 {
@@ -209,6 +226,7 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
         std::vector<Parameter> parameters;
         for (const clang::ParmVarDecl* pvd : M->parameters()) {
             Parameter parameter;
+            parameter.hasDefault = pvd->hasDefaultArg();
 
             // Determine name of the parameter.
             const clang::VarDecl* vd{pvd->getCanonicalDecl()};
@@ -219,10 +237,7 @@ void Generator::GenerateFunctions(const std::vector<T>& V, const char* TypeName,
             if (t->isReferenceType() && t.getNonReferenceType().isConstQualified())
                 t = t.getNonReferenceType();
             t.removeLocalConst();
-            parameter.typeName = t.getAsString(PrintPolicy);
-
-            // Determine whether the parameter is a default parameter.
-            parameter.hasDefault = pvd->hasDefaultArg();
+            parameter.typeName = attachedPointer(t.getAsString(NoScopePrintPolicy));
 
             parameters.push_back(parameter);
         }
@@ -326,9 +341,7 @@ void Generator::GenerateTypeInfo(clang::QualType Type)
     }
     // TODO:  Find more QMetaType
 
-    clang::PrintingPolicy Policy = PrintPolicy;
-    Policy.SuppressScope = true;
-    std::string TypeString = getDesugarType(Type).getAsString(Policy);
+    std::string TypeString = getDesugarType(Type).getAsString(NoScopePrintPolicy);
 
     // Remove the spaces;
     int k = 0;
@@ -479,12 +492,17 @@ static void PrintTemplateParameters(llvm::raw_ostream& Out, clang::TemplateParam
 Generator::Generator(const ClassDef* CDef, llvm::raw_ostream& OS, clang::ASTContext& Ctx,
                      MocNg* Moc, llvm::raw_ostream* OS_TemplateHeader)
     : Def(CDef), CDef(CDef), OS(OS), OS_TemplateHeader(OS_TemplateHeader ? *OS_TemplateHeader : OS),
-      Ctx(Ctx), PrintPolicy(Ctx.getPrintingPolicy()), HexPrintStyle(llvm::HexPrintStyle::Lower),
-      Moc(Moc)
+      Ctx(Ctx), PrintPolicy(Ctx.getPrintingPolicy()), NoScopePrintPolicy(Ctx.getPrintingPolicy()),
+      HexPrintStyle(llvm::HexPrintStyle::Lower), Moc(Moc)
 {
     PrintPolicy.SuppressTagKeyword = true;
     PrintPolicy.SuppressUnwrittenScope = true;
     PrintPolicy.AnonymousTagLocations = false;
+
+    NoScopePrintPolicy.SuppressScope = true;
+    NoScopePrintPolicy.SuppressTagKeyword = true;
+    NoScopePrintPolicy.SuppressUnwrittenScope = true;
+    NoScopePrintPolicy.AnonymousTagLocations = false;
 
     HasTemplateHeader = OS_TemplateHeader && (&OS != OS_TemplateHeader);
 
@@ -536,11 +554,17 @@ Generator::Generator(const ClassDef* CDef, llvm::raw_ostream& OS, clang::ASTCont
 Generator::Generator(const NamespaceDef* NDef, llvm::raw_ostream& OS, clang::ASTContext& Ctx,
                      MocNg* Moc)
     : Def(NDef), CDef(nullptr), OS(OS), OS_TemplateHeader(OS), Ctx(Ctx),
-      PrintPolicy(Ctx.getPrintingPolicy()), Moc(Moc)
+      PrintPolicy(Ctx.getPrintingPolicy()), NoScopePrintPolicy(Ctx.getPrintingPolicy()), Moc(Moc)
 {
     PrintPolicy.SuppressTagKeyword = true;
     PrintPolicy.SuppressUnwrittenScope = true;
     PrintPolicy.AnonymousTagLocations = false;
+
+    NoScopePrintPolicy.SuppressScope = true;
+    NoScopePrintPolicy.SuppressTagKeyword = true;
+    NoScopePrintPolicy.SuppressUnwrittenScope = true;
+    NoScopePrintPolicy.AnonymousTagLocations = false;
+
     HasTemplateHeader = false;
 
     {
@@ -639,7 +663,7 @@ void Generator::GenerateCode()
             //
             // Due to calling conventions; the value is registered before the
             // key on my platform. It does not really matter, but makes testing
-            // initial moc compatability easier.
+            // initial moc compatibility easier.
             // TODO(ton): Consider removing this once Qt4 support is more
             // stable.
             const int valueIdx{StrIdx(I.second)};
@@ -836,6 +860,7 @@ void Generator::GenerateCode()
                              "    return QObject::d_ptr->metaObject ? "
                              "QObject::d_ptr->metaObject : &staticMetaObject;\n}\n\n";
 
+        const llvm::StringRef ClassName = CDef->Record->getName();
         OS_TemplateHeader << TemplatePrefix << "void *" << QualName
                           << "::qt_metacast(const char *_clname)\n{\n"
                              "    if (!_clname) return 0;\n"
@@ -843,19 +868,16 @@ void Generator::GenerateCode()
                           << QualifiedClassNameIdentifier
                           << "))\n"
                              "        return static_cast<void*>(const_cast< "
-                          << QualifiedClassNameIdentifier << "*>(this));\n";
+                          << ClassName << "*>(this));\n";
 
         if (CDef->Record->getNumBases() > 1) {
             for (auto BaseIt = CDef->Record->bases_begin() + 1; BaseIt != CDef->Record->bases_end();
                  ++BaseIt) {
-                if (BaseIt->getAccessSpecifier() == clang::AS_private)
-                    continue;
-                auto B = BaseIt->getType().getAsString(PrintPolicy);
+                auto B = BaseIt->getType().getAsString(NoScopePrintPolicy);
                 OS_TemplateHeader << "    if (!strcmp(_clname, \"" << B
                                   << "\"))\n"
                                      "        return static_cast< "
-                                  << B << "*>(const_cast< " << QualifiedClassNameIdentifier
-                                  << "*>(this));\n";
+                                  << B << "*>(const_cast< " << ClassName << "*>(this));\n";
             }
         }
 
@@ -869,10 +891,16 @@ void Generator::GenerateCode()
 
         if (BaseName.empty())
             OS_TemplateHeader << "    return 0;\n}\n";
-        else
-            OS_TemplateHeader << "    return " << BaseName
-                              << "::qt_metacast(_clname);\n"
-                                 "}\n";
+        else {
+            if (BaseName.find("::") == std::string::npos) {
+                OS_TemplateHeader << "    return " << BaseName << "::qt_metacast(_clname);\n"
+                                  << "}\n";
+            } else {
+                OS_TemplateHeader << "    typedef " << BaseName << " QMocSuperClass;\n"
+                                  << "    return QMocSuperClass::qt_metacast(_clname);\n"
+                                     "}\n";
+            }
+        }
 
         GenerateMetaCall();
 
@@ -904,11 +932,14 @@ void Generator::GenerateMetaCall()
                       << TemplatePrefix << "int " << QualName
                       << "::qt_metacall(QMetaObject::Call _c, int _id, void **_a)\n{\n";
     if (!BaseName.empty()) {
-        OS_TemplateHeader << "    _id = " << BaseName << "::qt_metacall(_c, _id, _a);\n";
-        if (MethodCount || CDef->Properties.size()) {
-            OS_TemplateHeader << "    if (_id < 0)\n"
-                                 "        return _id;\n";
-        };
+        if (BaseName.find("::") == std::string::npos) {
+            OS_TemplateHeader << "    _id = " << BaseName << "::qt_metacall(_c, _id, _a);\n";
+        } else {
+            OS_TemplateHeader << "    typedef " << BaseName << " QMocSuperClass;\n"
+                              << "    _id = QMocSuperClass::qt_metacall(_c, _id, _a);\n";
+        }
+        OS_TemplateHeader << "    if (_id < 0)\n"
+                             "        return _id;\n";
     }
 
     if (MethodCount) {
@@ -1074,19 +1105,21 @@ void Generator::GenerateMetaCall()
         HandleQueryPropertyAction(needStored, "QueryPropertyStored", &PropertyDef::stored);
         HandleQueryPropertyAction(needEditable, "QueryPropertyEditable", &PropertyDef::editable);
         HandleQueryPropertyAction(needUser, "QueryPropertyUser", &PropertyDef::user);
+
+        OS_TemplateHeader << "\n#endif // QT_NO_PROPERTIES\n";
     }
-    OS_TemplateHeader << "\n#endif // QT_NO_PROPERTIES\n"
-                         "    return _id;\n"
+    OS_TemplateHeader << "    return _id;\n"
                          "}\n";
 }
 
 void Generator::GenerateStaticMetaCall()
 {
     llvm::StringRef ClassName = CDef->Record->getName();
+
     OS_TemplateHeader << "\n"
                       << TemplatePrefix << "void " << QualName
                       << "::qt_static_metacall(QObject *_o, QMetaObject::Call "
-                         "_c, int _id, void **_a)\n{\n    ";
+                         "_c, int _id, void **_a)\n{\n";
     bool NeedElse = false;
     bool IsUsed_a = false;
 
@@ -1112,7 +1145,7 @@ void Generator::GenerateStaticMetaCall()
                                                                 ->getType()
                                                                 .getNonReferenceType()
                                                                 .getUnqualifiedType())
-                                             .getAsString(PrintPolicy)
+                                             .getAsString(NoScopePrintPolicy)
                                       << " >(_a[" << (j + 1) << "])";
             }
             OS_TemplateHeader << ");\n            if (_a[0]) *reinterpret_cast<" << resultType
@@ -1129,6 +1162,8 @@ void Generator::GenerateStaticMetaCall()
     if (MethodCount) {
         if (NeedElse)
             OS_TemplateHeader << " else ";
+        else
+            OS_TemplateHeader << "    ";
         NeedElse = true;
         OS_TemplateHeader << "if (_c == QMetaObject::InvokeMetaMethod) {\n";
         if (CDef->HasQObject) {
@@ -1165,7 +1200,7 @@ void Generator::GenerateStaticMetaCall()
                     OS_TemplateHeader << "auto";
                 else
                     ReturnType.getUnqualifiedType().print(OS, PrintPolicy);
-                OS_TemplateHeader << " _r =  ";
+                OS_TemplateHeader << " _r = ";
             }
 
             OS_TemplateHeader << "_t->" << MD->getName() << "(";
@@ -1176,13 +1211,11 @@ void Generator::GenerateStaticMetaCall()
                 if (j == MD->getNumParams() - 1 && HasPrivateSignal(MD))
                     OS_TemplateHeader << "QPrivateSignal()";
                 else {
-                    std::string pointerType{
+                    std::string pointerType{attachedPointer(
                         Ctx.getPointerType(MD->getParamDecl(j)->getType().getNonReferenceType())
-                            .getAsString(PrintPolicy)};
+                            .getAsString(NoScopePrintPolicy))};
                     // Match moc output; parenthesize the pointer.
-                    if (pointerType.size() > 1) {
-                        pointerType[pointerType.size() - 2] = '(';
-                    }
+                    pointerType.insert(pointerType.size() - 1, 1, '(');
                     OS_TemplateHeader << "(*reinterpret_cast< " << pointerType << ")>(_a["
                                       << (j + 1) << "]))";
                     IsUsed_a = true;
@@ -1194,9 +1227,10 @@ void Generator::GenerateStaticMetaCall()
                 if (AutoType)
                     OS_TemplateHeader << "decltype(&_r)";
                 else
-                    Ctx.getPointerType(ReturnType.getNonReferenceType().getUnqualifiedType())
-                        .print(OS, PrintPolicy);
-                OS_TemplateHeader << " >(_a[0]) = qMove(_r); }";
+                    OS_TemplateHeader << attachedPointer(
+                        Ctx.getPointerType(ReturnType.getNonReferenceType().getUnqualifiedType())
+                            .getAsString(PrintPolicy));
+                OS_TemplateHeader << ">(_a[0]) = _r; } ";
                 IsUsed_a = true;
             }
             OS_TemplateHeader << " break;\n";
@@ -1237,6 +1271,13 @@ void Generator::GenerateStaticMetaCall()
                              "        }\n    }\n";
     }
 
+    if (!MethodCount) {
+        OS_TemplateHeader << "    Q_UNUSED(_o);\n";
+        if (CDef->Constructors.empty()) {
+            OS_TemplateHeader << "    Q_UNUSED(_id);\n"
+                              << "    Q_UNUSED(_c);\n";
+        }
+    }
     if (!IsUsed_a) {
         OS_TemplateHeader << "    Q_UNUSED(_a);\n";
     }
@@ -1263,10 +1304,9 @@ void Generator::GenerateSignal(const clang::CXXMethodDecl* MD, int Idx)
     OS_TemplateHeader << QualName << "::" << MD->getName() + "(";
     for (uint j = 0; j < MD->getNumParams(); ++j) {
         if (j)
-            OS_TemplateHeader << ",";
+            OS_TemplateHeader << ", ";
         OS_TemplateHeader << MD->getParamDecl(j)->getType().getAsString(PrintPolicy);
         OS_TemplateHeader << " _t" << (j + 1);
-        ;
     }
     OS_TemplateHeader << ")";
     std::string This = "this";
